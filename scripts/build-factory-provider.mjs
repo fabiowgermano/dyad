@@ -22,13 +22,33 @@ await build({
     {
       name: "factory-src-alias",
       setup(buildApi) {
-        buildApi.onResolve({ filter: /^@\// }, (args) => ({
-          path: path.join(
-            repoRoot,
-            "src",
-            args.path.slice(2).replace(/\?raw$/, ""),
-          ),
-        }));
+        buildApi.onResolve({ filter: /^@\// }, (args) => {
+          const relative = args.path.slice(2).replace(/\?raw$/, "");
+          const base = path.join(repoRoot, "src", relative);
+          const candidates = [
+            base,
+            `${base}.ts`,
+            `${base}.tsx`,
+            `${base}.js`,
+            `${base}.json`,
+            path.join(base, "index.ts"),
+            path.join(base, "index.tsx"),
+            path.join(base, "index.js"),
+          ];
+          const resolved = candidates.find((candidate) =>
+            fs.existsSync(candidate),
+          );
+          if (!resolved) {
+            return {
+              errors: [
+                {
+                  text: `Factory alias could not resolve ${args.path}`,
+                },
+              ],
+            };
+          }
+          return { path: resolved };
+        });
       },
     },
   ],
