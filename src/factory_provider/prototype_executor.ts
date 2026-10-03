@@ -149,6 +149,12 @@ function intentId(
     .digest("hex");
 }
 
+function toolArgumentContract(): string {
+  return (
+    'Tool argument names are strict: call read_file with {"path":"src/..."} (never "file_path"), and call write_file with {"path":"src/...","content":"..."} (never "file_path"). '
+  );
+}
+
 function workspaceHint(paths: string[]): string {
   return paths
     .filter(
@@ -171,6 +177,7 @@ function renderBuildPrompt(
     "You are executing an automated prototype build with no interactive renderer. " +
     "Do not answer with suggested code, snippets, instructions, or a prose-only solution. " +
     "Inspect the existing workspace with the available file tools, then use the available mutation tools to implement the requested prototype directly in the workspace. " +
+    toolArgumentContract() +
     "Preserve existing dependencies unless the brief explicitly requires otherwise. " +
     "Finish only after the requested source changes have actually been written to disk.\n\n" +
     "# Known workspace files\n" +
@@ -206,6 +213,7 @@ function renderRepairPrompt(
     "The previous build turn completed without writing any source change. " +
     "This operation cannot succeed with a prose answer. Do not ask the user questions and do not merely show code. " +
     "Use the available file-reading and file-mutation tools now. Inspect one of the known existing source files below, then write the requested implementation into the actual workspace. " +
+    toolArgumentContract() +
     "Finish only after a mutation tool succeeds.\n\n" +
     "# Known workspace files\n" +
     (workspaceHint(workspacePaths) || "- inspect the workspace with file tools") +
