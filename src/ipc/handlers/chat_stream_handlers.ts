@@ -12,7 +12,7 @@ import {
 import { claudeStatus } from "@/ipc/services/claude_code/runtime";
 import { handleLocalAgentStream } from "@/pro/main/ipc/handlers/local_agent/local_agent_handler";
 import { v4 as uuidv4 } from "uuid";
-import { app, type IpcMainInvokeEvent } from "electron";
+import { app } from "electron";
 import { createTypedHandler } from "./base";
 import {
   computeStreamingPatch,
@@ -1011,7 +1011,7 @@ export function registerChatStreamHandlers() {
   );
 
   const chatStreamHandler = async (
-    event: IpcMainInvokeEvent,
+    event: ChatStreamExecutionEvent,
     req: ChatStreamParams,
   ) => {
     let attachmentPaths: string[] = [];
