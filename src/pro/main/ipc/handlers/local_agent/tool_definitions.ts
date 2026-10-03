@@ -7,8 +7,8 @@ import { isShellExperimentAvailable } from "@/shared/shell_capability";
  * Each tool includes a zod schema, description, and execute function
  */
 
-import { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
+import type { SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import { readSettings, writeSettings } from "@/main/settings";
 import type { SqlConsentMetadata } from "@/shared/sqlConsentMetadata";
 import {
@@ -290,7 +290,7 @@ export function getAllAgentToolConsents(): Record<
 }
 
 export async function requireAgentToolConsent(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   params: {
     chatId: number;
     toolName: AgentToolName;
