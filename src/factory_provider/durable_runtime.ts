@@ -11,7 +11,6 @@ export interface PrototypeExecutor {
     request: FactoryCreatePrototypeRequest,
     identity: {
       operationId: string;
-      projectId: string;
     },
   ): Promise<Omit<FactoryPrototypeOperation, "protocolVersion" | "operationId" | "idempotencyKey">>;
 }
@@ -20,7 +19,6 @@ export interface DurableFactoryPrototypeRuntimeOptions {
   store: PrototypeOperationStore;
   executor: PrototypeExecutor;
   operationId?: () => string;
-  projectId?: () => string;
 }
 
 /**
@@ -35,7 +33,6 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
   private readonly store: PrototypeOperationStore;
   private readonly executor: PrototypeExecutor;
   private readonly operationId: () => string;
-  private readonly projectId: () => string;
   private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(options: DurableFactoryPrototypeRuntimeOptions) {
@@ -43,8 +40,6 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
     this.executor = options.executor;
     this.operationId =
       options.operationId ?? (() => `op-${crypto.randomUUID()}`);
-    this.projectId =
-      options.projectId ?? (() => `project-${crypto.randomUUID()}`);
   }
 
   async createPrototype(
@@ -71,7 +66,6 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
       operationId: this.operationId(),
       idempotencyKey: request.idempotencyKey,
       state: "accepted",
-      projectId: this.projectId(),
     };
 
     try {
@@ -134,13 +128,11 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
     try {
       const result = await this.executor.execute(request, {
         operationId: admitted.operationId,
-        projectId: admitted.projectId!,
       });
       this.store.update({
         protocolVersion: "v1",
         operationId: admitted.operationId,
         idempotencyKey: admitted.idempotencyKey,
-        projectId: admitted.projectId,
         ...result,
       });
     } catch (error) {
