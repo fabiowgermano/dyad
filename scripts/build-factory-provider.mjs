@@ -35,9 +35,13 @@ await build({
             path.join(base, "index.tsx"),
             path.join(base, "index.js"),
           ];
-          const resolved = candidates.find((candidate) =>
-            fs.existsSync(candidate),
-          );
+          const resolved = candidates.find((candidate) => {
+            try {
+              return fs.statSync(candidate).isFile();
+            } catch {
+              return false;
+            }
+          });
           if (!resolved) {
             return {
               errors: [
