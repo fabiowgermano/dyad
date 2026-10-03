@@ -12,6 +12,8 @@ describe("loadFactoryWindowsServiceConfig", () => {
       FACTORY_DYAD_BIND: "10.77.0.2",
       FACTORY_DYAD_PORT: "8787",
       FACTORY_DYAD_MODEL_REGISTRY_FILE: "C:\\FactoryDyad\\models.json",
+      FACTORY_DYAD_BUILD_VERSION: "1.18.0-beta.1",
+      FACTORY_DYAD_BUILD_COMMIT: "49ec81c7",
     });
 
     expect(config.bindHost).toBe("10.77.0.2");
@@ -43,6 +45,8 @@ describe("loadFactoryWindowsServiceConfig", () => {
         FACTORY_DYAD_TOKEN: "x".repeat(48),
         FACTORY_DYAD_PORT: "70000",
         FACTORY_DYAD_MODEL_REGISTRY_FILE: "C:\\FactoryDyad\\models.json",
+      FACTORY_DYAD_BUILD_VERSION: "1.18.0-beta.1",
+      FACTORY_DYAD_BUILD_COMMIT: "49ec81c7",
       }),
     ).toThrow("1 to 65535");
   });
