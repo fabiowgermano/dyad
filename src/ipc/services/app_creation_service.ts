@@ -27,6 +27,10 @@ export interface CreatedDyadApp {
  */
 export async function createDyadApp(
   params: CreateAppParams,
+  options: {
+    needsAppBlueprint?: boolean;
+    testingEnabled?: boolean;
+  } = {},
 ): Promise<CreatedDyadApp> {
   const appName = sanitizeAppDisplayName(params.name);
 
@@ -56,8 +60,10 @@ export async function createDyadApp(
     .values({
       name: appName,
       path: appPath,
-      needsAppBlueprint: settings.enableAppBlueprint,
-      testingEnabled: settings.enableTestingForNewApps ?? false,
+      needsAppBlueprint:
+        options.needsAppBlueprint ?? settings.enableAppBlueprint,
+      testingEnabled:
+        options.testingEnabled ?? settings.enableTestingForNewApps ?? false,
     })
     .returning();
 
