@@ -12,7 +12,6 @@ import type { AutoModelCandidates } from "@/ipc/services/auto_model_candidates";
  * Main orchestrator for tool-based agent mode with parallel execution
  */
 
-import { IpcMainInvokeEvent } from "electron";
 import {
   streamText,
   asSchema,
@@ -54,7 +53,7 @@ import {
   messagesContainPdf,
   PDF_INPUT_UNSUPPORTED_MESSAGE,
 } from "@/ipc/utils/chat_attachment_utils";
-import { safeSend } from "@/ipc/utils/safe_sender";
+import { safeSend, type SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import { sendChatChunk } from "@/ipc/utils/high_volume_delivery";
 import { broadcastToRegisteredWindows } from "@/ipc/utils/window_broadcast";
 import { publishQueryInvalidations } from "@/ipc/utils/query_invalidation_delivery";
@@ -589,7 +588,7 @@ export function buildImplementerOutcomeNotices(
 }
 
 export async function handleLocalAgentStream(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   req: ChatStreamParams,
   abortController: AbortController,
   {
@@ -2532,7 +2531,7 @@ export async function handleLocalAgentStream(
  * restored list so its UI matches disk.
  */
 async function clearTodosOnCancel(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   appPath: string,
   chatId: number,
   priorTodos: Todo[],
@@ -2710,7 +2709,7 @@ async function updateResponseInDb(messageId: number, content: string) {
 }
 
 function sendResponseChunk(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   chatId: number,
   invocationRef: ChatStreamParams["invocationRef"],
   streamId: number | undefined,
@@ -2894,7 +2893,7 @@ function shouldRunTodoFollowUpPass(params: {
  * and surfaces tool errors as `<dyad-output type="error">`.
  */
 async function getMcpTools(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   ctx: AgentContext,
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
