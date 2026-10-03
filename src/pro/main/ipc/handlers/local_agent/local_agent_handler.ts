@@ -1133,10 +1133,13 @@ export async function handleLocalAgentStream(
 
     // Read-only mode includes only read-only tools (MCP tools are skipped since
     // we can't tell if they modify state); plan mode includes only planning tools.
+    const factoryHeadlessBuild =
+      buildMode && process.env.DYAD_HEADLESS_SERVICE === "1";
     const buildOptions = {
       toolProfile,
       readOnly,
       planModeOnly,
+      factoryHeadlessBuild,
       basicAgentMode: !readOnly && !planModeOnly && isBasicAgentMode(settings),
       freeModelMode: effectiveFreeModelMode,
       enableAppBlueprint:
@@ -1456,8 +1459,17 @@ export async function handleLocalAgentStream(
             system: systemPrompt,
             messages: sanitizedAttemptMessages,
             tools: allTools,
+            toolChoice: factoryHeadlessBuild ? "required" : "auto",
             stopWhen: [
               stepCountIs(maxToolCallSteps),
+              // Factory headless Build completes immediately after a real file mutation.
+              // The write/search tool has already executed before stopWhen is evaluated.
+              ...(factoryHeadlessBuild
+                ? [
+                    hasToolCall("write_file"),
+                    hasToolCall("search_replace"),
+                  ]
+                : []),
               // Stop after the integration tool so the next stream is started
               // with a freshly built system prompt that includes the new
               // Supabase/Neon context. The frontend auto-triggers a hidden
