@@ -1,4 +1,3 @@
-import type { WebContents } from "electron";
 import {
   windowRegistry,
   type WindowEndpoint,
@@ -29,7 +28,7 @@ export function broadcastToAllWindows(channel: string, payload: unknown): void {
 }
 
 export function broadcastToRegisteredWindows(
-  origin: WebContents | null | undefined,
+  origin: WindowEndpoint | null | undefined,
   channel: string,
   payload: unknown,
 ): void {
@@ -49,6 +48,6 @@ export function broadcastToRegisteredWindows(
  */
 function sendToLiveEndpoints(channel: string, payload: unknown): void {
   for (const endpoint of windowRegistry.liveEndpoints()) {
-    safeSend(endpoint as WebContents, channel, payload);
+    safeSend(endpoint, channel, payload);
   }
 }
