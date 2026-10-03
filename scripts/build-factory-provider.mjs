@@ -11,14 +11,31 @@ fs.mkdirSync(outdir, { recursive: true });
 await build({
   absWorkingDir: repoRoot,
   entryPoints: ["src/factory_provider/service_entry.ts"],
-  outfile: path.join(outdir, "service.mjs"),
+  outfile: path.join(outdir, "service.cjs"),
   bundle: true,
   platform: "node",
-  format: "esm",
+  format: "cjs",
   target: "node24",
   sourcemap: true,
   packages: "external",
   plugins: [
+    {
+      name: "factory-safe-storage-cjs",
+      setup(buildApi) {
+        buildApi.onLoad(
+          { filter: /safe_storage_legacy\.ts$/ },
+          (args) => {
+            const source = fs
+              .readFileSync(args.path, "utf8")
+              .replace(
+                "createRequire(import.meta.url)",
+                "createRequire(__filename)",
+              );
+            return { contents: source, loader: "ts" };
+          },
+        );
+      },
+    },
     {
       name: "factory-src-alias",
       setup(buildApi) {
