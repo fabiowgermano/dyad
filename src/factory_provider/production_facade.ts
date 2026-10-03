@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { chats, messages } from "@/db/schema";
@@ -161,16 +161,16 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     }
 
     const latestAssistant = await db.query.messages.findFirst({
-      where: eq(messages.chatId, input.chatId),
+      where: and(
+        eq(messages.chatId, input.chatId),
+        eq(messages.role, "assistant"),
+      ),
       orderBy: [desc(messages.id)],
     });
 
     return {
       updatedFiles: terminalEnd.updatedFiles ?? false,
-      providerRequestId:
-        latestAssistant?.role === "assistant"
-          ? latestAssistant.requestId ?? undefined
-          : undefined,
+      providerRequestId: latestAssistant?.requestId ?? undefined,
     };
   }
 
