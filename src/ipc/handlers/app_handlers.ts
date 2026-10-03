@@ -1,6 +1,6 @@
 import { deleteChatJournals } from "@/ipc/services/chat_journal_cleanup";
 import { initialChatExecution } from "@/ipc/utils/chat_execution_selection";
-import { app, dialog } from "electron";
+import { app, dialog, type WebContents } from "electron";
 import { closeDatabase, db, getDatabaseFilePaths } from "../../db";
 import {
   apps,
@@ -13,7 +13,7 @@ import {
 import { desc, eq, inArray, like } from "drizzle-orm";
 import { createTypedHandler } from "./base";
 import { appContracts } from "../types/app";
-import type { AppFileSearchResult } from "../types/app";
+import type { AppFileSearchResult, CreateAppParams } from "../types/app";
 import { miscContracts } from "../types/misc";
 import { systemContracts } from "../types/system";
 import fs from "node:fs";
@@ -845,19 +845,23 @@ async function deleteAppByIdExclusive(
   return deletedRow;
 }
 
-export function registerAppHandlers() {
-  registerCloudSandboxSyncUpdateListener();
 
-  createTypedHandler(systemContracts.restartDyad, async () => {
-    appRelaunchRequest.request();
-    app.quit();
-  });
-
-  createTypedHandler(appContracts.createApp, async (event, params) => {
+/**
+ * Production create-app seam for trusted non-renderer callers.
+ *
+ * This preserves the exact app creation semantics used by Electron IPC while
+ * allowing the Factory headless runtime to create a Dyad app without
+ * fabricating an IPC event or renderer. A renderer owner is only required for
+ * first-prompt lifecycle tracking.
+ */
+export async function createAppFromTrustedCaller(
+  params: CreateAppParams,
+  owner?: WebContents,
+) {
     if (params.firstPromptCreationOperationId) {
       firstPromptCreationRegistry.track(
         params.firstPromptCreationOperationId,
-        event.sender,
+        owner,
       );
     }
     let app!: typeof apps.$inferSelect;
@@ -974,8 +978,19 @@ export function registerAppHandlers() {
         );
       }
     }
+}
+
+export function registerAppHandlers() {
+  registerCloudSandboxSyncUpdateListener();
+
+  createTypedHandler(systemContracts.restartDyad, async () => {
+    appRelaunchRequest.request();
+    app.quit();
   });
 
+  createTypedHandler(appContracts.createApp, async (event, params) =>
+    createAppFromTrustedCaller(params, event.sender),
+  );
   createTypedHandler(appContracts.copyApp, async (_, params) => {
     const { appId, withHistory } = params;
     const newAppName = sanitizeAppDisplayName(params.newAppName);
