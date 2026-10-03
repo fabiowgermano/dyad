@@ -112,6 +112,35 @@ describe("DyadPrototypeExecutor", () => {
     expect(result.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("freezes source evidence before preview runtime side effects", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>build output</main>;\n",
+        );
+        return { updatedFiles: true };
+      },
+      startPreview: async () => {
+        await fs.writeFile(path.join(root, "package-lock.json"), "{}\n");
+        return "http://127.0.0.1:41342";
+      },
+    };
+
+    const executor = new DyadPrototypeExecutor(facade, registry());
+    const result = await executor.execute(request("functional"), {
+      operationId: "op-preview-side-effect",
+    });
+
+    expect(result.previewRef).toBe("http://127.0.0.1:41342");
+    expect(result.files?.some((file) => file.path === "package-lock.json")).toBe(
+      false,
+    );
+  });
+
   it("does not start preview for a static requirement", async () => {
     const root = await appRoot();
     const startPreview = vi.fn(async () => "should-not-run");
