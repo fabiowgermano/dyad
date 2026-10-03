@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -11,6 +10,7 @@ import {
 import type { RoutableSafeSender } from "@/ipc/utils/safe_sender";
 import { executionBackendForModel } from "@/shared/execution_backend";
 import type { SerializableChatTurnIntent } from "@/chat_stream/transport";
+import { computeChatTurnPayloadHash } from "@/ipc/utils/chat_turn_intent_hash";
 import type {
   ChatStreamEndPayload,
   ChatStreamErrorPayload,
@@ -104,20 +104,21 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
       entityKey: input.chatId,
       operationId: input.operationId,
     };
-    const payloadHash = crypto
-      .createHash("sha256")
-      .update(input.prompt)
-      .digest("hex");
-
-    const intent: SerializableChatTurnIntent = {
+    const withoutHash: Omit<
+      SerializableChatTurnIntent,
+      "payloadHash"
+    > = {
       schemaVersion: 1,
       intentId: input.intentId,
       appId: input.appId,
-      payloadHash,
       chatId: input.chatId,
       invocationRef,
       prompt: input.prompt,
       requestedChatMode: "build",
+    };
+    const intent: SerializableChatTurnIntent = {
+      ...withoutHash,
+      payloadHash: computeChatTurnPayloadHash(withoutHash),
     };
 
     let terminalEnd: ChatStreamEndPayload | undefined;
