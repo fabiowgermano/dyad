@@ -75,23 +75,37 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     });
 
     const beforeBuild = await buildSourceManifest(created.resolvedPath);
+    let buildManifest = beforeBuild;
+    let providerRequestId: string | undefined;
 
-    const build = await this.facade.runBuild({
-      appId: created.appId,
-      chatId: created.chatId,
-      operationId: identity.operationId,
-      intentId: intentId(identity.operationId, request.idempotencyKey),
-      prompt: renderBuildPrompt(request),
-    });
+    for (let turn = 1; turn <= MAX_BUILD_TURNS; turn++) {
+      const build = await this.facade.runBuild({
+        appId: created.appId,
+        chatId: created.chatId,
+        operationId: `${identity.operationId}-build-${turn}`,
+        intentId: intentId(identity.operationId, request.idempotencyKey, turn),
+        prompt:
+          turn === 1
+            ? renderBuildPrompt(request, beforeBuild.files.map((file) => file.path))
+            : renderRepairPrompt(
+                request,
+                beforeBuild.files.map((file) => file.path),
+              ),
+      });
+      providerRequestId = build.providerRequestId ?? providerRequestId;
+      buildManifest = await buildSourceManifest(created.resolvedPath);
+      if (buildManifest.sourceSha256 !== beforeBuild.sourceSha256) {
+        break;
+      }
+    }
 
     // Freeze source evidence immediately after the Dyad build. Preview startup
     // may install dependencies or create package-manager metadata; those are
     // runtime side effects and must never be allowed to manufacture a false
     // "prototype changed" signal or contaminate the artifact hash.
-    const buildManifest = await buildSourceManifest(created.resolvedPath);
     if (buildManifest.sourceSha256 === beforeBuild.sourceSha256) {
       throw new Error(
-        "Dyad build completed without changing prototype source",
+        `Dyad build completed without changing prototype source after ${MAX_BUILD_TURNS} bounded turns`,
       );
     }
 
@@ -109,7 +123,7 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       previewRef,
       files: buildManifest.files,
       sourceSha256: buildManifest.sourceSha256,
-      providerRequestId: build.providerRequestId,
+      providerRequestId,
     };
   }
 }
@@ -119,14 +133,39 @@ function projectName(operationId: string): string {
   return `Factory ${compact || crypto.randomUUID()}`;
 }
 
-function intentId(operationId: string, idempotencyKey: string): string {
+const MAX_BUILD_TURNS = 2;
+const MAX_WORKSPACE_HINT_FILES = 120;
+
+function intentId(
+  operationId: string,
+  idempotencyKey: string,
+  turn: number,
+): string {
   return crypto
     .createHash("sha256")
-    .update(`factory-dyad-turn\0${operationId}\0${idempotencyKey}`)
+    .update(
+      `factory-dyad-turn\0${operationId}\0${idempotencyKey}\0${turn}`,
+    )
     .digest("hex");
 }
 
-function renderBuildPrompt(request: FactoryCreatePrototypeRequest): string {
+function workspaceHint(paths: string[]): string {
+  return paths
+    .filter(
+      (filePath) =>
+        filePath === "package.json" ||
+        filePath.startsWith("src/") ||
+        filePath.startsWith("app/"),
+    )
+    .slice(0, MAX_WORKSPACE_HINT_FILES)
+    .map((filePath) => `- ${filePath}`)
+    .join("\n");
+}
+
+function renderBuildPrompt(
+  request: FactoryCreatePrototypeRequest,
+  workspacePaths: string[],
+): string {
   let prompt =
     "# Factory headless execution contract\n" +
     "You are executing an automated prototype build with no interactive renderer. " +
@@ -134,7 +173,9 @@ function renderBuildPrompt(request: FactoryCreatePrototypeRequest): string {
     "Inspect the existing workspace with the available file tools, then use the available mutation tools to implement the requested prototype directly in the workspace. " +
     "Preserve existing dependencies unless the brief explicitly requires otherwise. " +
     "Finish only after the requested source changes have actually been written to disk.\n\n" +
-    "# Prototype brief\n" +
+    "# Known workspace files\n" +
+    (workspaceHint(workspacePaths) || "- inspect the workspace with file tools") +
+    "\n\n# Prototype brief\n" +
     request.brief.trim();
 
   if (request.references.length === 0) return prompt;
@@ -153,4 +194,22 @@ function renderBuildPrompt(request: FactoryCreatePrototypeRequest): string {
       "\n~~~\n";
   }
   return prompt;
+}
+
+
+function renderRepairPrompt(
+  request: FactoryCreatePrototypeRequest,
+  workspacePaths: string[],
+): string {
+  return (
+    "# Factory headless build correction\n" +
+    "The previous build turn completed without writing any source change. " +
+    "This operation cannot succeed with a prose answer. Do not ask the user questions and do not merely show code. " +
+    "Use the available file-reading and file-mutation tools now. Inspect one of the known existing source files below, then write the requested implementation into the actual workspace. " +
+    "Finish only after a mutation tool succeeds.\n\n" +
+    "# Known workspace files\n" +
+    (workspaceHint(workspacePaths) || "- inspect the workspace with file tools") +
+    "\n\n# Prototype brief\n" +
+    request.brief.trim()
+  );
 }
