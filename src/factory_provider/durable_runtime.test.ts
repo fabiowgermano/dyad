@@ -89,6 +89,34 @@ describe("DurableFactoryPrototypeRuntime", () => {
     expect(completed?.sourceSha256).toBe("c".repeat(64));
   });
 
+  it("does not replay an interrupted operation after service restart", async () => {
+    const store = await makeStore();
+    store.create(
+      {
+        protocolVersion: "v1",
+        operationId: "op-interrupted",
+        idempotencyKey: "idem-1234567890123456",
+        state: "running",
+      },
+      "a".repeat(64),
+    );
+    let executions = 0;
+    const runtime = new DurableFactoryPrototypeRuntime({
+      store,
+      executor: {
+        async execute() {
+          executions++;
+          return { state: "completed", files: [], sourceSha256: "c".repeat(64) };
+        },
+      },
+    });
+
+    const replay = await runtime.createPrototype(request());
+    expect(replay.state).toBe("indeterminate");
+    expect(replay.operationId).toBe("op-interrupted");
+    expect(executions).toBe(0);
+  });
+
   it("replays the same admitted operation for the same idempotency input", async () => {
     const store = await makeStore();
     let executions = 0;
