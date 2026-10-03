@@ -12,7 +12,7 @@ import {
 import { claudeStatus } from "@/ipc/services/claude_code/runtime";
 import { handleLocalAgentStream } from "@/pro/main/ipc/handlers/local_agent/local_agent_handler";
 import { v4 as uuidv4 } from "uuid";
-import { app, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, type IpcMainInvokeEvent } from "electron";
 import { createTypedHandler } from "./base";
 import {
   computeStreamingPatch,
@@ -120,7 +120,11 @@ import { isPreCommitHookAvailable } from "../services/pre_commit_service";
 import { userInputRegistry } from "../../user_input/main";
 import { getAppBlueprintForChat } from "./app_blueprint_handlers";
 
-import { safeSend, type SafeSender } from "../utils/safe_sender";
+import {
+  safeSend,
+  type RoutableSafeSender,
+  type SafeSender,
+} from "../utils/safe_sender";
 import {
   releaseChatProducerInterest,
   sendChatChunk,
@@ -284,8 +288,12 @@ export interface ChatStreamExecutionObserver {
   onError?(error: ChatStreamErrorPayload): void;
 }
 
+type ChatStreamExecutionEvent = {
+  sender: RoutableSafeSender;
+};
+
 type InternalChatStreamHandler = (
-  event: IpcMainInvokeEvent,
+  event: ChatStreamExecutionEvent,
   request: ChatStreamParams,
 ) => Promise<number | "error" | undefined>;
 
@@ -325,12 +333,12 @@ export function settleUnobservedChatStreamResult(
 }
 
 export function createObservedChatStreamSender(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   observeTerminal: (channel: string, payload: unknown) => void,
-): WebContents {
+): RoutableSafeSender {
   const targetIsUnavailable = (): boolean => {
     if (sender.isDestroyed()) return true;
-    const senderWithCrashState = sender as WebContents & {
+    const senderWithCrashState = sender as RoutableSafeSender & {
       isCrashed?: () => boolean;
     };
     return senderWithCrashState.isCrashed?.() ?? false;
@@ -387,7 +395,7 @@ export function registerLegacyChatStreamTestHandler(): void {
 }
 
 export async function executeChatStreamFromActor(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   request: ChatStreamParams,
   observer: ChatStreamExecutionObserver,
 ): Promise<number | "error"> {
@@ -432,7 +440,7 @@ export async function executeChatStreamFromActor(
   try {
     const result =
       (await internalChatStreamHandler(
-        { sender: observedSender } as IpcMainInvokeEvent,
+        { sender: observedSender },
         request,
       )) ?? "error";
     if (deferredCancellation) {
