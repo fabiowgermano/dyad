@@ -40,6 +40,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
     this.executor = options.executor;
     this.operationId =
       options.operationId ?? (() => `op-${crypto.randomUUID()}`);
+    this.store.recoverInterruptedOperations();
   }
 
   async createPrototype(
