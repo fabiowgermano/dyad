@@ -9,6 +9,8 @@ export interface FactoryWindowsServiceConfig {
   operationsDatabasePath: string;
   workspaceRoot: string;
   modelRegistryFile: string;
+  buildVersion: string;
+  buildCommit: string;
 }
 
 export function loadFactoryWindowsServiceConfig(
@@ -43,6 +45,14 @@ export function loadFactoryWindowsServiceConfig(
         env.FACTORY_DYAD_MODEL_REGISTRY_FILE,
         "FACTORY_DYAD_MODEL_REGISTRY_FILE",
       ),
+    ),
+    buildVersion: required(
+      env.FACTORY_DYAD_BUILD_VERSION,
+      "FACTORY_DYAD_BUILD_VERSION",
+    ),
+    buildCommit: required(
+      env.FACTORY_DYAD_BUILD_COMMIT,
+      "FACTORY_DYAD_BUILD_COMMIT",
     ),
   };
 }
