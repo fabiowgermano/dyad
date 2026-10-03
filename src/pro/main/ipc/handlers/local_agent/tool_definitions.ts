@@ -444,6 +444,12 @@ export interface BuildAgentToolSetOptions {
    */
   toolProfile?: "agent" | "build";
   /**
+   * Factory Windows service mode: keep Build deterministic and file-scoped.
+   * This avoids exposing planning/integration tools that can distract local
+   * models from the admitted prototype mutation.
+   */
+  factoryHeadlessBuild?: boolean;
+  /**
    * If true, exclude tools that modify state (files, database, etc.).
    * Used for read-only modes like "ask" mode.
    */
@@ -495,6 +501,18 @@ export const BUILD_MODE_TOOL_NAMES = [
 ] as const satisfies readonly AgentToolName[];
 
 const BUILD_MODE_TOOL_NAME_SET = new Set<AgentToolName>(BUILD_MODE_TOOL_NAMES);
+
+export const FACTORY_HEADLESS_BUILD_TOOL_NAMES = [
+  "read_file",
+  "write_file",
+  "search_replace",
+  "list_files",
+  "grep",
+] as const satisfies readonly AgentToolName[];
+
+const FACTORY_HEADLESS_BUILD_TOOL_NAME_SET = new Set<AgentToolName>(
+  FACTORY_HEADLESS_BUILD_TOOL_NAMES,
+);
 
 export async function estimateAgentToolTokens({
   appPath,
@@ -744,6 +762,12 @@ export function shouldIncludeTool(
   if (
     options.toolProfile === "build" &&
     !BUILD_MODE_TOOL_NAME_SET.has(tool.name)
+  ) {
+    return false;
+  }
+  if (
+    options.factoryHeadlessBuild &&
+    !FACTORY_HEADLESS_BUILD_TOOL_NAME_SET.has(tool.name)
   ) {
     return false;
   }
