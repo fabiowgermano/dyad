@@ -86,6 +86,10 @@ describe("DyadPrototypeExecutor", () => {
         calls.push("build");
         expect(input.prompt).toContain("Factory reference material");
         expect(input.prompt).toContain("Use a compact navigation.");
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>changed</main>;\n",
+        );
         return { updatedFiles: true, providerRequestId: "req-1" };
       }),
       startPreview: vi.fn(async () => {
@@ -114,7 +118,13 @@ describe("DyadPrototypeExecutor", () => {
     const facade: DyadExecutionFacade = {
       createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
       bindModel: async () => undefined,
-      runBuild: async () => ({ updatedFiles: true }),
+      runBuild: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>static changed</main>;\n",
+        );
+        return { updatedFiles: true };
+      },
       startPreview,
     };
     const executor = new DyadPrototypeExecutor(facade, registry());
@@ -124,6 +134,21 @@ describe("DyadPrototypeExecutor", () => {
 
     expect(startPreview).not.toHaveBeenCalled();
     expect(result.previewRef).toBeUndefined();
+  });
+
+  it("fails closed when Dyad reports completion without source mutation", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async () => ({ updatedFiles: false }),
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    await expect(
+      executor.execute(request("static"), { operationId: "op-no-change" }),
+    ).rejects.toThrow("without changing prototype source");
   });
 
   it("fails closed for a model identity that is not admitted", async () => {
