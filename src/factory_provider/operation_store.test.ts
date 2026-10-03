@@ -72,6 +72,44 @@ describe("PrototypeOperationStore", () => {
     ).toThrow();
   });
 
+  it("recovers accepted/running operations as indeterminate after restart", async () => {
+    const { dir, store } = await createStore();
+    store.create(
+      {
+        protocolVersion: "v1",
+        operationId: "op-accepted",
+        idempotencyKey: "idem-accepted",
+        state: "accepted",
+      },
+      "a".repeat(64),
+    );
+    store.create(
+      {
+        protocolVersion: "v1",
+        operationId: "op-done",
+        idempotencyKey: "idem-done",
+        state: "completed",
+        projectId: "p1",
+        sourceSha256: "b".repeat(64),
+        files: [],
+      },
+      "c".repeat(64),
+    );
+    store.close();
+    stores.pop();
+
+    const reopened = new PrototypeOperationStore(path.join(dir, "operations.db"));
+    stores.push(reopened);
+    expect(reopened.recoverInterruptedOperations()).toBe(1);
+    expect(reopened.getByOperationId("op-accepted")?.operation).toMatchObject({
+      state: "indeterminate",
+      errorCode: "SERVICE_RESTARTED_DURING_OPERATION",
+    });
+    expect(reopened.getByOperationId("op-done")?.operation.state).toBe(
+      "completed",
+    );
+  });
+
   it("updates terminal operation state without changing input identity", async () => {
     const { store } = await createStore();
     store.create(
