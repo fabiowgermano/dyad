@@ -7,6 +7,17 @@ export interface SafeSender {
 }
 
 /**
+ * Minimal sender contract required by chat-stream routing.
+ *
+ * Electron WebContents satisfies this interface, but production headless
+ * callers can provide a non-renderer endpoint without fabricating an
+ * IpcMainInvokeEvent or depending on Electron presentation state.
+ */
+export interface RoutableSafeSender extends SafeSender {
+  readonly id: number;
+}
+
+/**
  * Sends an IPC message to the renderer only if the provided `WebContents` is
  * still alive. This prevents `Object has been destroyed` errors that can occur
  * when asynchronous callbacks attempt to communicate after the window has
