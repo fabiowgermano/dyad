@@ -88,6 +88,9 @@ describe("DyadPrototypeExecutor", () => {
         expect(input.prompt).toContain(
           "implement the requested prototype directly in the workspace",
         );
+        expect(input.prompt).toContain(
+          'read_file with {"path":"src/..."} (never "file_path")',
+        );
         expect(input.prompt).toContain("Factory reference material");
         expect(input.prompt).toContain("Use a compact navigation.");
         await fs.writeFile(
