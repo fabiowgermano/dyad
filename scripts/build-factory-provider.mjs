@@ -10,14 +10,18 @@ fs.mkdirSync(outdir, { recursive: true });
 
 await build({
   absWorkingDir: repoRoot,
-  entryPoints: ["src/factory_provider/service_main.ts"],
-  outfile: path.join(outdir, "service.cjs"),
+  entryPoints: ["src/factory_provider/service_entry.ts"],
+  outfile: path.join(outdir, "service.mjs"),
   bundle: true,
   platform: "node",
-  format: "cjs",
+  format: "esm",
   target: "node24",
   sourcemap: true,
   packages: "external",
+  loader: {
+    ".md": "text",
+    ".txt": "text",
+  },
   tsconfig: path.join(repoRoot, "tsconfig.factory-provider.json"),
   logLevel: "info",
 });
