@@ -14,6 +14,10 @@ let defaultDirCreated = false;
  * Gets the default path of the base dyad-apps directory (without a specific app subdirectory)
  */
 export function getDefaultDyadAppsDirectory(): string {
+  const headlessAppsDir = process.env.DYAD_HEADLESS_APPS_DIR?.trim();
+  if (process.env.DYAD_HEADLESS_SERVICE === "1" && headlessAppsDir) {
+    return path.resolve(headlessAppsDir);
+  }
   if (IS_TEST_BUILD) {
     const electron = getElectron();
     return path.join(electron!.app.getPath("userData"), "dyad-apps");
@@ -118,6 +122,10 @@ export function getTypeScriptCachePath(): string {
 
 export function getUserDataPath(): string {
   const electron = getElectron();
+  const headlessUserDataDir = process.env.DYAD_HEADLESS_USER_DATA_DIR?.trim();
+  if (process.env.DYAD_HEADLESS_SERVICE === "1" && headlessUserDataDir) {
+    return path.resolve(headlessUserDataDir);
+  }
   const devUserDataDir = process.env.DYAD_DEV_USER_DATA_DIR?.trim();
 
   if (process.env.NODE_ENV === "development" && devUserDataDir) {
