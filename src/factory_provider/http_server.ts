@@ -85,6 +85,8 @@ function operationStatus(operation: FactoryPrototypeOperation): number {
       return 422;
     case "failed":
       return 502;
+    case "indeterminate":
+      return 200;
   }
 }
 
