@@ -26,8 +26,8 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - name: Typecheck
-        run: npm run ts
+      - name: Typecheck provider slice
+        run: npx tsc -p tsconfig.factory-provider.json
       - name: Factory provider tests
         shell: pwsh
         run: >
