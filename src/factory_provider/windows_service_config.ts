@@ -8,6 +8,7 @@ export interface FactoryWindowsServiceConfig {
   dataDirectory: string;
   operationsDatabasePath: string;
   workspaceRoot: string;
+  modelRegistryFile: string;
 }
 
 export function loadFactoryWindowsServiceConfig(
@@ -37,6 +38,12 @@ export function loadFactoryWindowsServiceConfig(
     dataDirectory,
     operationsDatabasePath: path.join(dataDirectory, "operations.db"),
     workspaceRoot,
+    modelRegistryFile: path.resolve(
+      required(
+        env.FACTORY_DYAD_MODEL_REGISTRY_FILE,
+        "FACTORY_DYAD_MODEL_REGISTRY_FILE",
+      ),
+    ),
   };
 }
 
