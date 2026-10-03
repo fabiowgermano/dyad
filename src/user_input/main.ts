@@ -1,5 +1,4 @@
 /** Main-process composition root for the user-input registry. */
-import { BrowserWindow, type WebContents } from "electron";
 import { and, eq } from "drizzle-orm";
 import log from "electron-log";
 import { db } from "../db";
@@ -7,25 +6,32 @@ import { mcpToolConsents } from "../db/schema";
 import { readSettings, writeSettings } from "../main/settings";
 import { systemClock, uuidIdSource } from "../state_machines/clock";
 import { safeSend } from "../ipc/utils/safe_sender";
+import type { WindowEndpoint } from "../window_infrastructure/main/window_registry";
 import { createUserInputRegistry } from "./registry";
 import type { UserInputCommand } from "./commands";
 import { dispatchDueFollowUp } from "./follow_up_dispatch";
 import { settleQuestionnaire } from "./questionnaire_journal";
 
-const subscribers = new Set<WebContents>();
+const subscribers = new Set<WindowEndpoint>();
 const logger = log.scope("user_input");
 
-export function rememberUserInputSubscriber(sender: WebContents): void {
+export function rememberUserInputSubscriber(sender: WindowEndpoint): void {
   if (subscribers.has(sender)) return;
   subscribers.add(sender);
   sender.once?.("destroyed", () => subscribers.delete(sender));
 }
 
 function broadcast(channel: string, payload: unknown): void {
-  const targets = new Set<WebContents>(subscribers);
-  const windows = BrowserWindow?.getAllWindows?.() ?? [];
-  for (const window of windows) {
-    if (!window.isDestroyed()) targets.add(window.webContents);
+  const targets = new Set<WindowEndpoint>(subscribers);
+  if (process.versions.electron) {
+    try {
+      const { BrowserWindow } = require("electron") as typeof import("electron");
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) targets.add(window.webContents);
+      }
+    } catch {
+      // Headless Node runtime has no Electron window registry.
+    }
   }
   for (const target of targets) safeSend(target, channel, payload);
 }
