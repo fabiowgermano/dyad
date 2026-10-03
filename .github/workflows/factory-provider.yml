@@ -38,3 +38,5 @@ jobs:
           src/factory_provider/operation_store.test.ts
           src/factory_provider/durable_runtime.test.ts
           src/factory_provider/windows_service_config.test.ts
+          src/factory_provider/model_registry.test.ts
+          src/factory_provider/prototype_executor.test.ts
