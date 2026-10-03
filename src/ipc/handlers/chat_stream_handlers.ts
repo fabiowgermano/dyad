@@ -2923,13 +2923,24 @@ This conversation includes one or more image attachments. When the user uploads 
         // logs, verification commands, sandbox scripts, or MCP servers.
         if (isBuildMode) {
           const readOnlyBuildTurn = isSecurityReviewIntent || isSummarizeIntent;
+          const factoryHeadlessSystemPrompt =
+            process.env.DYAD_HEADLESS_SERVICE === "1"
+              ? [
+                  "You are the Dyad build executor running without an interactive renderer.",
+                  "Use the provided native function tools; do not print pseudo-tool XML or prose instead of calling a tool.",
+                  "For a code-change request, inspect the target with read_file, then mutate the real workspace with write_file or search_replace.",
+                  "Tool calls are the only accepted way to read or modify files.",
+                  "Do not ask questions, create plans, or discuss the task.",
+                  "Stop only after a file mutation tool succeeds.",
+                ].join("\n")
+              : systemPrompt;
           finishedNaturally = await handleLocalAgentStream(
             event,
             req,
             abortController,
             {
               placeholderMessageId: placeholderAssistantMessage.id,
-              systemPrompt,
+              systemPrompt: factoryHeadlessSystemPrompt,
               dyadRequestId: dyadRequestId ?? "[no-request-id]",
               readOnly: readOnlyBuildTurn,
               toolProfile: "build",
