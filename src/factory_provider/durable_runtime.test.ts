@@ -75,7 +75,6 @@ describe("DurableFactoryPrototypeRuntime", () => {
       store,
       executor,
       operationId: () => "op-1",
-      projectId: () => "project-1",
     });
 
     const admitted = await runtime.createPrototype(request());
@@ -103,7 +102,6 @@ describe("DurableFactoryPrototypeRuntime", () => {
       store,
       executor,
       operationId: () => "op-1",
-      projectId: () => "project-1",
     });
 
     const first = await runtime.createPrototype(request());
@@ -128,7 +126,6 @@ describe("DurableFactoryPrototypeRuntime", () => {
       store,
       executor,
       operationId: () => "op-1",
-      projectId: () => "project-1",
     });
 
     await runtime.createPrototype(request());
