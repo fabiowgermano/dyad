@@ -28,6 +28,8 @@ jobs:
       - run: npm ci
       - name: Typecheck provider slice
         run: npx tsc -p tsconfig.factory-provider.json
+      - name: Build Windows service bundle
+        run: node scripts/build-factory-provider.mjs
       - name: Factory provider tests
         shell: pwsh
         run: >
