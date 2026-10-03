@@ -3,7 +3,6 @@
  */
 
 import { z } from "zod";
-import { IpcMainInvokeEvent } from "electron";
 import { jsonrepair } from "jsonrepair";
 import { AgentToolConsent, type UserSettings } from "@/lib/schemas";
 import { AgentTodo } from "@/ipc/types";
@@ -14,6 +13,7 @@ import type { SqlConsentMetadata } from "@/shared/sqlConsentMetadata";
 import type { McpToolDef } from "./mcp_type_defs";
 import type { SuggestablePlugin } from "./suggest_plugin";
 import type { MutationActivityOwner } from "../subagents/mutation_activity_tracker";
+import type { SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 
 // ============================================================================
 // XML Escape Helpers
@@ -85,7 +85,7 @@ export interface AgentContext {
   inferenceSettings?: UserSettings;
   /** Owner-scoped identity used to join only this root turn's mutations. */
   mutationActivityOwner?: MutationActivityOwner;
-  event: IpcMainInvokeEvent;
+  event: SenderInvokeEvent;
   appId: number;
   appPath: string;
   /**
