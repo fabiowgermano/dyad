@@ -67,7 +67,7 @@ function request(requirement: "static" | "functional" = "functional") {
       modelId: "model-a",
       configSha256: "a".repeat(64),
     },
-  } as const;
+  };
 }
 
 describe("DyadPrototypeExecutor", () => {
