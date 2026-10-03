@@ -17,6 +17,10 @@ export interface RoutableSafeSender extends SafeSender {
   readonly id: number;
 }
 
+export interface SenderInvokeEvent {
+  sender: RoutableSafeSender;
+}
+
 /**
  * Sends an IPC message to the renderer only if the provided `WebContents` is
  * still alive. This prevents `Object has been destroyed` errors that can occur
