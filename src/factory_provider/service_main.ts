@@ -129,15 +129,3 @@ function safeMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return value.slice(0, 2_000);
 }
-
-if (require.main === module) {
-  void runFactoryDyadService().catch((error) => {
-    process.stderr.write(
-      JSON.stringify({
-        event: "factory-dyad-provider.start-failed",
-        message: safeMessage(error),
-      }) + "\n",
-    );
-    process.exit(1);
-  });
-}
