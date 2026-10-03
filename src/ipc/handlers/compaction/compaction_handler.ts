@@ -3,7 +3,6 @@
  * Orchestrates the compaction of long conversations to stay within context limits.
  */
 
-import { IpcMainInvokeEvent } from "electron";
 import { streamText, ModelMessage } from "ai";
 import log from "electron-log";
 import { eq } from "drizzle-orm";
@@ -20,7 +19,7 @@ import {
   getContextWindow,
   shouldTriggerCompaction,
 } from "@/ipc/utils/token_utils";
-import { safeSend } from "@/ipc/utils/safe_sender";
+import { safeSend, type SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import {
   cancelOrphanedBaseStream,
   fastTextOutput,
@@ -162,7 +161,7 @@ export async function checkAndMarkForCompaction(
  * 6. Update chat record
  */
 export async function performCompaction(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   chatId: number,
   appPath: string,
   dyadRequestId: string,
