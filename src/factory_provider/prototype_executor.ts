@@ -127,7 +127,16 @@ function intentId(operationId: string, idempotencyKey: string): string {
 }
 
 function renderBuildPrompt(request: FactoryCreatePrototypeRequest): string {
-  let prompt = request.brief.trim();
+  let prompt =
+    "# Factory headless execution contract\n" +
+    "You are executing an automated prototype build with no interactive renderer. " +
+    "Do not answer with suggested code, snippets, instructions, or a prose-only solution. " +
+    "Inspect the existing workspace with the available file tools, then use the available mutation tools to implement the requested prototype directly in the workspace. " +
+    "Preserve existing dependencies unless the brief explicitly requires otherwise. " +
+    "Finish only after the requested source changes have actually been written to disk.\n\n" +
+    "# Prototype brief\n" +
+    request.brief.trim();
+
   if (request.references.length === 0) return prompt;
 
   prompt +=
