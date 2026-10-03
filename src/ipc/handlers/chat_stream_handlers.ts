@@ -346,6 +346,17 @@ export function settleUnobservedChatStreamResult(
   });
 }
 
+export function resolveObservedChatStreamResult(
+  request: ChatStreamParams,
+  result: number | "error" | undefined,
+  terminal: "end" | "error" | undefined,
+): number | "error" {
+  if (result !== undefined) return result;
+  if (terminal === "end") return request.chatId;
+  return "error";
+}
+
+
 export function createObservedChatStreamSender(
   sender: RoutableSafeSender,
   observeTerminal: (channel: string, payload: unknown) => void,
@@ -428,11 +439,13 @@ export async function executeChatStreamFromActor(
     observer,
   );
   let terminalObserved = false;
+  let terminalKind: "end" | "error" | undefined;
   let deferredCancellation: ChatStreamEndPayload | undefined;
   const observeTerminal = (channel: string, payload: unknown) => {
     if (terminalObserved) return;
     if (channel === "chat:response:end") {
       terminalObserved = true;
+      terminalKind = "end";
       const response = payload as ChatStreamEndPayload;
       if (response.wasCancelled) {
         // Cancellation is announced to renderers before the handler has
@@ -445,6 +458,7 @@ export async function executeChatStreamFromActor(
       }
     } else if (channel === "chat:response:error") {
       terminalObserved = true;
+      terminalKind = "error";
       observer.onError?.(payload as ChatStreamErrorPayload);
     }
   };
@@ -453,11 +467,15 @@ export async function executeChatStreamFromActor(
     observeTerminal,
   );
   try {
-    const result =
-      (await internalChatStreamHandler(
-        { sender: observedSender },
-        request,
-      )) ?? "error";
+    const rawResult = await internalChatStreamHandler(
+      { sender: observedSender },
+      request,
+    );
+    const result = resolveObservedChatStreamResult(
+      request,
+      rawResult,
+      terminalKind,
+    );
     if (deferredCancellation) {
       observer.onEnd?.(deferredCancellation);
     } else if (!terminalObserved) {
