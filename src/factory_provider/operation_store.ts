@@ -99,6 +99,43 @@ export class PrototypeOperationStore {
     };
   }
 
+  recoverInterruptedOperations(): number {
+    const rows = this.db
+      .prepare(
+        `SELECT operation_id, operation_json
+         FROM factory_prototype_operations`,
+      )
+      .all() as Array<{ operation_id: string; operation_json: string }>;
+
+    let recovered = 0;
+    const update = this.db.prepare(
+      `UPDATE factory_prototype_operations
+       SET operation_json = ?, updated_at = ?
+       WHERE operation_id = ?`,
+    );
+    const tx = this.db.transaction(() => {
+      for (const row of rows) {
+        const operation = JSON.parse(
+          row.operation_json,
+        ) as FactoryPrototypeOperation;
+        if (operation.state !== "accepted" && operation.state !== "running") {
+          continue;
+        }
+        const next: FactoryPrototypeOperation = {
+          ...operation,
+          state: "indeterminate",
+          errorCode: "SERVICE_RESTARTED_DURING_OPERATION",
+          errorMessage:
+            "The provider service restarted after admitting this operation; no automatic replay was attempted.",
+        };
+        update.run(JSON.stringify(next), new Date().toISOString(), row.operation_id);
+        recovered++;
+      }
+    });
+    tx();
+    return recovered;
+  }
+
   update(operation: FactoryPrototypeOperation): StoredPrototypeOperation {
     const now = new Date().toISOString();
     const result = this.db
