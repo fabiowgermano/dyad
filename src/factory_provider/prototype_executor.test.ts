@@ -169,12 +169,43 @@ describe("DyadPrototypeExecutor", () => {
     expect(result.previewRef).toBeUndefined();
   });
 
-  it("fails closed when Dyad reports completion without source mutation", async () => {
+  it("uses one bounded repair turn when the first build writes nothing", async () => {
     const root = await appRoot();
+    let turns = 0;
+    const runBuild = vi.fn(async (input) => {
+      turns++;
+      if (turns === 2) {
+        expect(input.prompt).toContain("Factory headless build correction");
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>repaired</main>;\n",
+        );
+      }
+      return { updatedFiles: turns === 2 };
+    });
     const facade: DyadExecutionFacade = {
       createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
       bindModel: async () => undefined,
-      runBuild: async () => ({ updatedFiles: false }),
+      runBuild,
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    const result = await executor.execute(request("static"), {
+      operationId: "op-repair",
+    });
+
+    expect(runBuild).toHaveBeenCalledTimes(2);
+    expect(result.state).toBe("completed");
+  });
+
+  it("fails closed when Dyad reports completion without source mutation", async () => {
+    const root = await appRoot();
+    const runBuild = vi.fn(async () => ({ updatedFiles: false }));
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
       startPreview: async () => "http://127.0.0.1:41342",
     };
     const executor = new DyadPrototypeExecutor(facade, registry());
@@ -182,6 +213,7 @@ describe("DyadPrototypeExecutor", () => {
     await expect(
       executor.execute(request("static"), { operationId: "op-no-change" }),
     ).rejects.toThrow("without changing prototype source");
+    expect(runBuild).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed for a model identity that is not admitted", async () => {
