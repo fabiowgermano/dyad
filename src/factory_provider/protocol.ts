@@ -41,6 +41,7 @@ export const FactoryPrototypeOperationStateSchema = z.enum([
   "completed",
   "rejected",
   "failed",
+  "indeterminate",
 ]);
 
 export const FactoryPrototypeOperationSchema = z.object({
