@@ -18,6 +18,20 @@ await build({
   target: "node24",
   sourcemap: true,
   packages: "external",
+  plugins: [
+    {
+      name: "factory-src-alias",
+      setup(buildApi) {
+        buildApi.onResolve({ filter: /^@\// }, (args) => ({
+          path: path.join(
+            repoRoot,
+            "src",
+            args.path.slice(2).replace(/\?raw$/, ""),
+          ),
+        }));
+      },
+    },
+  ],
   loader: {
     ".md": "text",
     ".txt": "text",
