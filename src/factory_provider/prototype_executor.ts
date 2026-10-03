@@ -84,6 +84,17 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       prompt: renderBuildPrompt(request),
     });
 
+    // Freeze source evidence immediately after the Dyad build. Preview startup
+    // may install dependencies or create package-manager metadata; those are
+    // runtime side effects and must never be allowed to manufacture a false
+    // "prototype changed" signal or contaminate the artifact hash.
+    const buildManifest = await buildSourceManifest(created.resolvedPath);
+    if (buildManifest.sourceSha256 === beforeBuild.sourceSha256) {
+      throw new Error(
+        "Dyad build completed without changing prototype source",
+      );
+    }
+
     let previewRef: string | undefined;
     if (request.requirement === "functional") {
       previewRef = await this.facade.startPreview({
@@ -92,19 +103,12 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       });
     }
 
-    const manifest = await buildSourceManifest(created.resolvedPath);
-    if (manifest.sourceSha256 === beforeBuild.sourceSha256) {
-      throw new Error(
-        "Dyad build completed without changing prototype source",
-      );
-    }
-
     return {
       state: "completed",
       projectId: String(created.appId),
       previewRef,
-      files: manifest.files,
-      sourceSha256: manifest.sourceSha256,
+      files: buildManifest.files,
+      sourceSha256: buildManifest.sourceSha256,
       providerRequestId: build.providerRequestId,
     };
   }
