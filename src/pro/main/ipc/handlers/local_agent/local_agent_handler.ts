@@ -1253,6 +1253,12 @@ export async function handleLocalAgentStream(
       }
     }
     const allTools: ToolSet = { ...agentTools, ...mcpToolsForRegistration };
+    if (process.env.DYAD_HEADLESS_SERVICE === "1" && buildMode) {
+      logger.info("factory-headless-toolset", {
+        count: Object.keys(allTools).length,
+        names: Object.keys(allTools),
+      });
+    }
     if (modelClient.model instanceof ClaudeCodeModel) {
       modelClient.model.bindTools(allTools, ctx, () =>
         pendingUserMessages.splice(0).flat(),
