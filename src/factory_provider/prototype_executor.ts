@@ -74,6 +74,8 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       selection,
     });
 
+    const beforeBuild = await buildSourceManifest(created.resolvedPath);
+
     const build = await this.facade.runBuild({
       appId: created.appId,
       chatId: created.chatId,
@@ -91,6 +93,12 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     }
 
     const manifest = await buildSourceManifest(created.resolvedPath);
+    if (manifest.sourceSha256 === beforeBuild.sourceSha256) {
+      throw new Error(
+        "Dyad build completed without changing prototype source",
+      );
+    }
+
     return {
       state: "completed",
       projectId: String(created.appId),
