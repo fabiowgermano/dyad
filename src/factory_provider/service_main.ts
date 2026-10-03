@@ -28,6 +28,7 @@ export async function runFactoryDyadService(): Promise<void> {
     { ProductionDyadExecutionFacade },
     { startFactoryProviderServer },
     { stopAllAppsSync },
+    { applyManagedPnpmToProcessPath },
   ] = await Promise.all([
     import("@/db"),
     import("./operation_store"),
@@ -37,7 +38,15 @@ export async function runFactoryDyadService(): Promise<void> {
     import("./production_facade"),
     import("./http_server"),
     import("@/ipc/utils/process_manager"),
+    import("@/ipc/utils/socket_firewall"),
   ]);
+
+  // app_runtime_service calls fixPath() at module evaluation time. Apply the
+  // service toolchain only after every production runtime module has loaded so
+  // the Windows child-process PATH cannot be overwritten by desktop startup
+  // behavior that the headless composition root intentionally skips.
+  prependFactoryServiceNodeRuntimeToPath();
+  applyManagedPnpmToProcessPath();
 
   initializeDatabase();
 
@@ -63,6 +72,7 @@ export async function runFactoryDyadService(): Promise<void> {
       port: server.port,
       dyadVersion: config.buildVersion,
       dyadCommit: config.buildCommit,
+      nodeRuntime: process.execPath,
     }) + "\n",
   );
 
@@ -128,4 +138,25 @@ export async function runFactoryDyadService(): Promise<void> {
 function safeMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return value.slice(0, 2_000);
+}
+
+
+export function prependFactoryServiceNodeRuntimeToPath(
+  env: NodeJS.ProcessEnv = process.env,
+  executablePath = process.execPath,
+): void {
+  const pathKey =
+    Object.keys(env).find((key) => key.toLowerCase() === "path") ??
+    (process.platform === "win32" ? "Path" : "PATH");
+  const nodeDir = path.dirname(executablePath);
+  const entries = (env[pathKey] ?? "")
+    .split(path.delimiter)
+    .filter(Boolean);
+
+  const normalize = (value: string) =>
+    process.platform === "win32" ? value.toLowerCase() : value;
+
+  if (!entries.some((entry) => normalize(entry) === normalize(nodeDir))) {
+    env[pathKey] = [nodeDir, ...entries].join(path.delimiter);
+  }
 }
