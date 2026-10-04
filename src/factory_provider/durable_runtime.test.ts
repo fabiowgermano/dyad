@@ -151,6 +151,50 @@ describe("DurableFactoryPrototypeRuntime", () => {
     expect(executions).toBe(1);
   });
 
+  it("deduplicates completed preview reconciliation after restart", async () => {
+    const store = await makeStore();
+    const completed = {
+      protocolVersion: "v1" as const,
+      operationId: "op-preview",
+      idempotencyKey: "idem-preview-1234567890",
+      state: "completed" as const,
+      projectId: "42",
+      previewRef: "http://localhost:41000",
+      files: [],
+      sourceSha256: "c".repeat(64),
+    };
+    store.create(completed, "a".repeat(64));
+
+    let reconciliations = 0;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const executor: PrototypeExecutor = {
+      async execute() {
+        throw new Error("execute must not run during reconciliation");
+      },
+      async reconcileCompleted(operation) {
+        reconciliations++;
+        await blocked;
+        return { ...operation, previewRef: "http://localhost:42042" };
+      },
+    };
+    const runtime = new DurableFactoryPrototypeRuntime({ store, executor });
+
+    const first = runtime.getOperation("op-preview");
+    const second = runtime.getOperation("op-preview");
+    release();
+    const [one, two] = await Promise.all([first, second]);
+
+    expect(reconciliations).toBe(1);
+    expect(one?.previewRef).toBe("http://localhost:42042");
+    expect(two?.previewRef).toBe("http://localhost:42042");
+    expect(store.getByOperationId("op-preview")?.operation.previewRef).toBe(
+      "http://localhost:42042",
+    );
+  });
+
   it("rejects reuse of an idempotency key for a different input", async () => {
     const store = await makeStore();
     const executor: PrototypeExecutor = {

@@ -18,6 +18,9 @@ export interface PrototypeExecutor {
       "protocolVersion" | "operationId" | "idempotencyKey"
     >
   >;
+  reconcileCompleted?(
+    operation: FactoryPrototypeOperation,
+  ): Promise<FactoryPrototypeOperation>;
 }
 
 export interface DurableFactoryPrototypeRuntimeOptions {
@@ -39,6 +42,10 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
   private readonly executor: PrototypeExecutor;
   private readonly operationId: () => string;
   private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly reconciliations = new Map<
+    string,
+    Promise<FactoryPrototypeOperation>
+  >();
 
   constructor(options: DurableFactoryPrototypeRuntimeOptions) {
     this.store = options.store;
@@ -104,7 +111,41 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
   async getOperation(
     operationId: string,
   ): Promise<FactoryPrototypeOperation | null> {
-    return this.store.getByOperationId(operationId)?.operation ?? null;
+    const stored = this.store.getByOperationId(operationId)?.operation ?? null;
+    if (
+      !stored ||
+      stored.state !== "completed" ||
+      !stored.previewRef ||
+      !this.executor.reconcileCompleted
+    ) {
+      return stored;
+    }
+
+    const existing = this.reconciliations.get(operationId);
+    if (existing) return existing;
+
+    const reconciliation = this.reconcileCompleted(stored).finally(() => {
+      this.reconciliations.delete(operationId);
+    });
+    this.reconciliations.set(operationId, reconciliation);
+    return reconciliation;
+  }
+
+  private async reconcileCompleted(
+    stored: FactoryPrototypeOperation,
+  ): Promise<FactoryPrototypeOperation> {
+    const refreshed = await this.executor.reconcileCompleted!(stored);
+    if (
+      refreshed.operationId !== stored.operationId ||
+      refreshed.idempotencyKey !== stored.idempotencyKey ||
+      refreshed.state !== "completed"
+    ) {
+      throw new Error(
+        "completed prototype reconciliation changed operation identity",
+      );
+    }
+    this.store.update(refreshed);
+    return refreshed;
   }
 
   private startExecution(

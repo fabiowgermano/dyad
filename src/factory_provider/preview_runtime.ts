@@ -43,6 +43,11 @@ export async function startFactoryPreview(options: {
   ensureFactoryAppRunMachineRegistered();
   installFactoryRuntimeExitHooks();
 
+  const activePreview = runningApps.get(options.appId)?.proxyUrl;
+  if (activePreview) {
+    return activePreview;
+  }
+
   await appRunActorService.dispatchStart(options.appId, {
     operationId: options.operationId ?? randomUUID(),
     startedAt: Date.now(),

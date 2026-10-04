@@ -150,6 +150,31 @@ describe("DyadPrototypeExecutor", () => {
     ).toBe(false);
   });
 
+  it("reconciles a completed functional preview without rebuilding", async () => {
+    const startPreview = vi.fn(async () => "http://127.0.0.1:42042");
+    const facade = { startPreview } as unknown as DyadExecutionFacade;
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    const operation = {
+      protocolVersion: "v1" as const,
+      operationId: "op-completed",
+      idempotencyKey: "idem-completed-123456",
+      state: "completed" as const,
+      projectId: "42",
+      previewRef: "http://127.0.0.1:41042",
+      files: [],
+      sourceSha256: "c".repeat(64),
+    };
+
+    const reconciled = await executor.reconcileCompleted(operation);
+
+    expect(startPreview).toHaveBeenCalledWith({
+      appId: 42,
+      operationId: "op-completed",
+    });
+    expect(reconciled.previewRef).toBe("http://127.0.0.1:42042");
+  });
+
   it("does not start preview for a static requirement", async () => {
     const root = await appRoot();
     const startPreview = vi.fn(async () => "should-not-run");

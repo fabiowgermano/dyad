@@ -45,6 +45,29 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     private readonly models: FactoryModelRegistry,
   ) {}
 
+  async reconcileCompleted(
+    operation: FactoryPrototypeOperation,
+  ): Promise<FactoryPrototypeOperation> {
+    if (
+      operation.state !== "completed" ||
+      !operation.previewRef ||
+      !operation.projectId
+    ) {
+      return operation;
+    }
+
+    const appId = Number(operation.projectId);
+    if (!Number.isSafeInteger(appId) || appId <= 0) {
+      throw new Error("completed Dyad operation has an invalid project id");
+    }
+
+    const previewRef = await this.facade.startPreview({
+      appId,
+      operationId: operation.operationId,
+    });
+    return { ...operation, previewRef };
+  }
+
   async execute(
     request: FactoryCreatePrototypeRequest,
     identity: { operationId: string },
