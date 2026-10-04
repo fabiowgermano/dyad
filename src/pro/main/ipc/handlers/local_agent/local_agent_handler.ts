@@ -1459,10 +1459,7 @@ export async function handleLocalAgentStream(
               // Factory headless Build completes immediately after a real file mutation.
               // The write/search tool has already executed before stopWhen is evaluated.
               ...(factoryHeadlessBuild
-                ? [
-                    hasToolCall("write_file"),
-                    hasToolCall("search_replace"),
-                  ]
+                ? [hasToolCall("write_file"), hasToolCall("search_replace")]
                 : []),
               // Stop after the integration tool so the next stream is started
               // with a freshly built system prompt that includes the new

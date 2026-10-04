@@ -15,9 +15,11 @@ async function tempRoot(): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(
-    roots.splice(0).map((root) =>
-      fs.rm(root, { recursive: true, force: true }).catch(() => undefined),
-    ),
+    roots
+      .splice(0)
+      .map((root) =>
+        fs.rm(root, { recursive: true, force: true }).catch(() => undefined),
+      ),
   );
 });
 
@@ -38,10 +40,7 @@ describe("buildSourceManifest", () => {
     const mb = await buildSourceManifest(b);
 
     expect(ma).toEqual(mb);
-    expect(ma.files.map((file) => file.path)).toEqual([
-      "src/a.ts",
-      "src/b.ts",
-    ]);
+    expect(ma.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
   it("excludes non-source dependency and git directories", async () => {
@@ -49,7 +48,10 @@ describe("buildSourceManifest", () => {
     await fs.mkdir(path.join(root, "node_modules", "x"), { recursive: true });
     await fs.mkdir(path.join(root, ".git"), { recursive: true });
     await fs.writeFile(path.join(root, "app.ts"), "ok\n");
-    await fs.writeFile(path.join(root, "node_modules", "x", "index.js"), "no\n");
+    await fs.writeFile(
+      path.join(root, "node_modules", "x", "index.js"),
+      "no\n",
+    );
     await fs.writeFile(path.join(root, ".git", "HEAD"), "ref\n");
 
     const manifest = await buildSourceManifest(root);

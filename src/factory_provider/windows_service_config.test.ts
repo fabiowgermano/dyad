@@ -45,8 +45,8 @@ describe("loadFactoryWindowsServiceConfig", () => {
         FACTORY_DYAD_TOKEN: "x".repeat(48),
         FACTORY_DYAD_PORT: "70000",
         FACTORY_DYAD_MODEL_REGISTRY_FILE: "C:\\FactoryDyad\\models.json",
-      FACTORY_DYAD_BUILD_VERSION: "1.18.0-beta.1",
-      FACTORY_DYAD_BUILD_COMMIT: "49ec81c7",
+        FACTORY_DYAD_BUILD_VERSION: "1.18.0-beta.1",
+        FACTORY_DYAD_BUILD_COMMIT: "49ec81c7",
       }),
     ).toThrow("1 to 65535");
   });

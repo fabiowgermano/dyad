@@ -4,10 +4,7 @@ import { appRunDefinition } from "@/app_run/definition";
 import { appRunActorService } from "@/ipc/services/app_run_actor_service";
 import { appRuntimeService } from "@/ipc/services/app_runtime_service";
 import { remoteMachineHost } from "@/ipc/services/distributed_machine_actor_host";
-import {
-  runningApps,
-  stopAllAppsSync,
-} from "@/ipc/utils/process_manager";
+import { runningApps, stopAllAppsSync } from "@/ipc/utils/process_manager";
 
 let machineRegistered = false;
 let exitHookInstalled = false;

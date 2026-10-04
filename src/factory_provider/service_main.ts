@@ -140,7 +140,6 @@ function safeMessage(error: unknown): string {
   return value.slice(0, 2_000);
 }
 
-
 export function prependFactoryServiceNodeRuntimeToPath(
   env: NodeJS.ProcessEnv = process.env,
   executablePath = process.execPath,
@@ -149,9 +148,7 @@ export function prependFactoryServiceNodeRuntimeToPath(
     Object.keys(env).find((key) => key.toLowerCase() === "path") ??
     (process.platform === "win32" ? "Path" : "PATH");
   const nodeDir = path.dirname(executablePath);
-  const entries = (env[pathKey] ?? "")
-    .split(path.delimiter)
-    .filter(Boolean);
+  const entries = (env[pathKey] ?? "").split(path.delimiter).filter(Boolean);
 
   const normalize = (value: string) =>
     process.platform === "win32" ? value.toLowerCase() : value;

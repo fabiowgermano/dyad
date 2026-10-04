@@ -68,9 +68,7 @@ export class FactoryModelRegistry {
       provider: entry.dyad.provider,
       name: entry.dyad.name,
       effortLevel: entry.dyad.effortLevel,
-      ...(entry.dyad.connection
-        ? { connection: entry.dyad.connection }
-        : {}),
+      ...(entry.dyad.connection ? { connection: entry.dyad.connection } : {}),
     };
   }
 }

@@ -36,10 +36,7 @@ export interface DyadExecutionFacade {
     providerRequestId?: string;
   }>;
 
-  startPreview(input: {
-    appId: number;
-    operationId: string;
-  }): Promise<string>;
+  startPreview(input: { appId: number; operationId: string }): Promise<string>;
 }
 
 export class DyadPrototypeExecutor implements PrototypeExecutor {
@@ -86,7 +83,10 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
         intentId: intentId(identity.operationId, request.idempotencyKey, turn),
         prompt:
           turn === 1
-            ? renderBuildPrompt(request, beforeBuild.files.map((file) => file.path))
+            ? renderBuildPrompt(
+                request,
+                beforeBuild.files.map((file) => file.path),
+              )
             : renderRepairPrompt(
                 request,
                 beforeBuild.files.map((file) => file.path),
@@ -143,16 +143,12 @@ function intentId(
 ): string {
   return crypto
     .createHash("sha256")
-    .update(
-      `factory-dyad-turn\0${operationId}\0${idempotencyKey}\0${turn}`,
-    )
+    .update(`factory-dyad-turn\0${operationId}\0${idempotencyKey}\0${turn}`)
     .digest("hex");
 }
 
 function toolArgumentContract(): string {
-  return (
-    'Tool argument names are strict: call read_file with {"path":"src/..."} (never "file_path"), and call write_file with {"path":"src/...","content":"..."} (never "file_path"). '
-  );
+  return 'Tool argument names are strict: call read_file with {"path":"src/..."} (never "file_path"), and call write_file with {"path":"src/...","content":"..."} (never "file_path"). ';
 }
 
 function workspaceHint(paths: string[]): string {
@@ -181,7 +177,8 @@ function renderBuildPrompt(
     "Preserve existing dependencies unless the brief explicitly requires otherwise. " +
     "Finish only after the requested source changes have actually been written to disk.\n\n" +
     "# Known workspace files\n" +
-    (workspaceHint(workspacePaths) || "- inspect the workspace with file tools") +
+    (workspaceHint(workspacePaths) ||
+      "- inspect the workspace with file tools") +
     "\n\n# Prototype brief\n" +
     request.brief.trim();
 
@@ -203,7 +200,6 @@ function renderBuildPrompt(
   return prompt;
 }
 
-
 function renderRepairPrompt(
   request: FactoryCreatePrototypeRequest,
   workspacePaths: string[],
@@ -216,7 +212,8 @@ function renderRepairPrompt(
     toolArgumentContract() +
     "Finish only after a mutation tool succeeds.\n\n" +
     "# Known workspace files\n" +
-    (workspaceHint(workspacePaths) || "- inspect the workspace with file tools") +
+    (workspaceHint(workspacePaths) ||
+      "- inspect the workspace with file tools") +
     "\n\n# Prototype brief\n" +
     request.brief.trim()
   );

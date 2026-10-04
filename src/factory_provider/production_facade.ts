@@ -17,10 +17,7 @@ import type {
 } from "@/chat_stream/protocol";
 import type { ModelSelection } from "@/lib/schemas";
 import { startFactoryPreview } from "./preview_runtime";
-import type {
-  DyadCreatedApp,
-  DyadExecutionFacade,
-} from "./prototype_executor";
+import type { DyadCreatedApp, DyadExecutionFacade } from "./prototype_executor";
 
 let chatRuntimeRegistered = false;
 
@@ -104,10 +101,7 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
       entityKey: input.chatId,
       operationId: input.operationId,
     };
-    const withoutHash: Omit<
-      SerializableChatTurnIntent,
-      "payloadHash"
-    > = {
+    const withoutHash: Omit<SerializableChatTurnIntent, "payloadHash"> = {
       schemaVersion: 1,
       intentId: input.intentId,
       appId: input.appId,
@@ -147,9 +141,7 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     );
 
     if (terminalError) {
-      throw new Error(
-        `Dyad build failed: ${boundError(terminalError.error)}`,
-      );
+      throw new Error(`Dyad build failed: ${boundError(terminalError.error)}`);
     }
     if (result === "error") {
       throw new Error("Dyad build failed without a terminal completion");
@@ -175,10 +167,7 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     };
   }
 
-  startPreview(input: {
-    appId: number;
-    operationId: string;
-  }): Promise<string> {
+  startPreview(input: { appId: number; operationId: string }): Promise<string> {
     return startFactoryPreview({
       appId: input.appId,
       operationId: `${input.operationId}-preview`,
@@ -188,7 +177,5 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
 
 function boundError(message: string): string {
   const normalized = message.trim();
-  return normalized.length <= 2_000
-    ? normalized
-    : normalized.slice(0, 2_000);
+  return normalized.length <= 2_000 ? normalized : normalized.slice(0, 2_000);
 }

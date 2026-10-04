@@ -5,7 +5,10 @@ import type {
   FactoryCreatePrototypeRequest,
   FactoryPrototypeOperation,
 } from "./protocol";
-import { startFactoryProviderServer, type FactoryProviderServer } from "./http_server";
+import {
+  startFactoryProviderServer,
+  type FactoryProviderServer,
+} from "./http_server";
 
 const TOKEN = "t".repeat(48);
 let running: FactoryProviderServer | undefined;

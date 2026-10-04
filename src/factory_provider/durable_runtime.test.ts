@@ -24,13 +24,17 @@ async function makeStore() {
 afterEach(async () => {
   while (stores.length) stores.pop()!.close();
   await Promise.all(
-    dirs.splice(0).map((dir) =>
-      fs.rm(dir, { recursive: true, force: true }).catch(() => undefined),
-    ),
+    dirs
+      .splice(0)
+      .map((dir) =>
+        fs.rm(dir, { recursive: true, force: true }).catch(() => undefined),
+      ),
   );
 });
 
-function request(overrides: Partial<FactoryCreatePrototypeRequest> = {}): FactoryCreatePrototypeRequest {
+function request(
+  overrides: Partial<FactoryCreatePrototypeRequest> = {},
+): FactoryCreatePrototypeRequest {
   return {
     idempotencyKey: "idem-1234567890123456",
     inputSha256: "a".repeat(64),
@@ -106,7 +110,11 @@ describe("DurableFactoryPrototypeRuntime", () => {
       executor: {
         async execute() {
           executions++;
-          return { state: "completed", files: [], sourceSha256: "c".repeat(64) };
+          return {
+            state: "completed",
+            files: [],
+            sourceSha256: "c".repeat(64),
+          };
         },
       },
     });

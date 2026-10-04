@@ -25,9 +25,11 @@ async function appRoot(): Promise<string> {
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(
-    roots.splice(0).map((root) =>
-      fs.rm(root, { recursive: true, force: true }).catch(() => undefined),
-    ),
+    roots
+      .splice(0)
+      .map((root) =>
+        fs.rm(root, { recursive: true, force: true }).catch(() => undefined),
+      ),
   );
 });
 
@@ -143,9 +145,9 @@ describe("DyadPrototypeExecutor", () => {
     });
 
     expect(result.previewRef).toBe("http://127.0.0.1:41342");
-    expect(result.files?.some((file) => file.path === "package-lock.json")).toBe(
-      false,
-    );
+    expect(
+      result.files?.some((file) => file.path === "package-lock.json"),
+    ).toBe(false);
   });
 
   it("does not start preview for a static requirement", async () => {

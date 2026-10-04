@@ -128,7 +128,11 @@ export class PrototypeOperationStore {
           errorMessage:
             "The provider service restarted after admitting this operation; no automatic replay was attempted.",
         };
-        update.run(JSON.stringify(next), new Date().toISOString(), row.operation_id);
+        update.run(
+          JSON.stringify(next),
+          new Date().toISOString(),
+          row.operation_id,
+        );
         recovered++;
       }
     });
@@ -152,7 +156,9 @@ export class PrototypeOperationStore {
 
     const stored = this.getByOperationId(operation.operationId);
     if (!stored) {
-      throw new Error(`prototype operation disappeared: ${operation.operationId}`);
+      throw new Error(
+        `prototype operation disappeared: ${operation.operationId}`,
+      );
     }
     return stored;
   }

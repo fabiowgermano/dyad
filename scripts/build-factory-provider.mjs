@@ -22,18 +22,15 @@ await build({
     {
       name: "factory-safe-storage-cjs",
       setup(buildApi) {
-        buildApi.onLoad(
-          { filter: /safe_storage_legacy\.ts$/ },
-          (args) => {
-            const source = fs
-              .readFileSync(args.path, "utf8")
-              .replace(
-                "createRequire(import.meta.url)",
-                "createRequire(__filename)",
-              );
-            return { contents: source, loader: "ts" };
-          },
-        );
+        buildApi.onLoad({ filter: /safe_storage_legacy\.ts$/ }, (args) => {
+          const source = fs
+            .readFileSync(args.path, "utf8")
+            .replace(
+              "createRequire(import.meta.url)",
+              "createRequire(__filename)",
+            );
+          return { contents: source, loader: "ts" };
+        });
       },
     },
     {

@@ -52,7 +52,10 @@ export const FactoryPrototypeOperationSchema = z.object({
   projectId: z.string().min(1).optional(),
   previewRef: z.string().min(1).optional(),
   files: z.array(FactoryPrototypeFileSchema).optional(),
-  sourceSha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+  sourceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
   providerRequestId: z.string().min(1).optional(),
   errorCode: z.string().min(1).optional(),
   errorMessage: z.string().min(1).optional(),

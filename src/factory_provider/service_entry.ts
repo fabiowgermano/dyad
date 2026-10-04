@@ -1,8 +1,7 @@
 import { runFactoryDyadService } from "./service_main";
 
 void runFactoryDyadService().catch((error) => {
-  const message =
-    error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(
     JSON.stringify({
       event: "factory-dyad-provider.start-failed",

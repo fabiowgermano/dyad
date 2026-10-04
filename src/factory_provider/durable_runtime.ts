@@ -12,7 +12,12 @@ export interface PrototypeExecutor {
     identity: {
       operationId: string;
     },
-  ): Promise<Omit<FactoryPrototypeOperation, "protocolVersion" | "operationId" | "idempotencyKey">>;
+  ): Promise<
+    Omit<
+      FactoryPrototypeOperation,
+      "protocolVersion" | "operationId" | "idempotencyKey"
+    >
+  >;
 }
 
 export interface DurableFactoryPrototypeRuntimeOptions {

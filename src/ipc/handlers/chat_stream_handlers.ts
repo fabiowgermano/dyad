@@ -356,7 +356,6 @@ export function resolveObservedChatStreamResult(
   return "error";
 }
 
-
 export function createObservedChatStreamSender(
   sender: RoutableSafeSender,
   observeTerminal: (channel: string, payload: unknown) => void,

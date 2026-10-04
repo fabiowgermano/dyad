@@ -19,9 +19,11 @@ async function createStore() {
 afterEach(async () => {
   while (stores.length) stores.pop()!.close();
   await Promise.all(
-    tempDirs.splice(0).map((dir) =>
-      fs.rm(dir, { recursive: true, force: true }).catch(() => undefined),
-    ),
+    tempDirs
+      .splice(0)
+      .map((dir) =>
+        fs.rm(dir, { recursive: true, force: true }).catch(() => undefined),
+      ),
   );
 });
 
@@ -39,7 +41,9 @@ describe("PrototypeOperationStore", () => {
     store.close();
     stores.pop();
 
-    const reopened = new PrototypeOperationStore(path.join(dir, "operations.db"));
+    const reopened = new PrototypeOperationStore(
+      path.join(dir, "operations.db"),
+    );
     stores.push(reopened);
     expect(reopened.getByOperationId("op-1")?.operation).toEqual(operation);
     expect(reopened.getByIdempotencyKey("idem-1")?.inputSha256).toBe(
@@ -98,7 +102,9 @@ describe("PrototypeOperationStore", () => {
     store.close();
     stores.pop();
 
-    const reopened = new PrototypeOperationStore(path.join(dir, "operations.db"));
+    const reopened = new PrototypeOperationStore(
+      path.join(dir, "operations.db"),
+    );
     stores.push(reopened);
     expect(reopened.recoverInterruptedOperations()).toBe(1);
     expect(reopened.getByOperationId("op-accepted")?.operation).toMatchObject({
