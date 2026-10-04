@@ -43,7 +43,6 @@ function electronRuntime(): typeof import("electron") | undefined {
   }
 }
 
-
 // WARNING: Do not change values once it's been
 // set in DEFAULT_SETTINGS.
 //

@@ -127,7 +127,6 @@ describe("pending actor stream cancellation", () => {
   });
 });
 
-
 describe("resolveObservedChatStreamResult", () => {
   it("treats a silent handler as successful when an end terminal was observed", () => {
     expect(

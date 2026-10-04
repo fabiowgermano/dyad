@@ -2084,9 +2084,9 @@ async function executeAppTestsWithIsolation(
   if (preview) {
     // Preview-in-panel is renderer-only. Headless/service senders deliberately
     // never enter this branch; isolate the Electron cast at this presentation boundary.
-    previewWindow = BrowserWindow.fromWebContents(
-      event.sender as unknown as WebContents,
-    ) ?? undefined;
+    previewWindow =
+      BrowserWindow.fromWebContents(event.sender as unknown as WebContents) ??
+      undefined;
     if (!previewWindow) {
       return {
         appId,

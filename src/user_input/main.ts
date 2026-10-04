@@ -25,7 +25,8 @@ function broadcast(channel: string, payload: unknown): void {
   const targets = new Set<WindowEndpoint>(subscribers);
   if (process.versions.electron) {
     try {
-      const { BrowserWindow } = require("electron") as typeof import("electron");
+      const { BrowserWindow } =
+        require("electron") as typeof import("electron");
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) targets.add(window.webContents);
       }

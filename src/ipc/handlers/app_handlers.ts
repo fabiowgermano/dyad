@@ -846,7 +846,6 @@ async function deleteAppByIdExclusive(
   return deletedRow;
 }
 
-
 /**
  * Production create-app seam for trusted non-renderer callers.
  *
