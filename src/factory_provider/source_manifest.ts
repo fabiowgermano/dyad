@@ -30,11 +30,23 @@ function normalizeRelativePath(root: string, filePath: string): string {
   return relative;
 }
 
+const EXCLUDED_SOURCE_DIRECTORIES = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".vite",
+  ".turbo",
+]);
+
 async function walk(root: string, current: string): Promise<string[]> {
   const entries = await fs.readdir(current, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name === ".git" || entry.name === "node_modules") continue;
+    if (entry.isDirectory() && EXCLUDED_SOURCE_DIRECTORIES.has(entry.name)) {
+      continue;
+    }
     const fullPath = path.join(current, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await walk(root, fullPath)));

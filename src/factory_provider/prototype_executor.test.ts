@@ -72,6 +72,8 @@ function request(requirement: "static" | "functional" = "functional") {
   };
 }
 
+const verifyBuildOk = async () => ({ ok: true });
+
 describe("DyadPrototypeExecutor", () => {
   it("runs create -> model bind -> real build -> preview -> manifest", async () => {
     const root = await appRoot();
@@ -101,6 +103,10 @@ describe("DyadPrototypeExecutor", () => {
         );
         return { updatedFiles: true, providerRequestId: "req-1" };
       }),
+      verifyBuild: vi.fn(async () => {
+        calls.push("verify");
+        return { ok: true };
+      }),
       startPreview: vi.fn(async () => {
         calls.push("preview");
         return "http://127.0.0.1:41342";
@@ -110,7 +116,7 @@ describe("DyadPrototypeExecutor", () => {
     const executor = new DyadPrototypeExecutor(facade, registry());
     const result = await executor.execute(request(), { operationId: "op-1" });
 
-    expect(calls).toEqual(["create", "model", "build", "preview"]);
+    expect(calls).toEqual(["create", "model", "build", "verify", "preview"]);
     expect(result).toMatchObject({
       state: "completed",
       projectId: "42",
@@ -133,6 +139,7 @@ describe("DyadPrototypeExecutor", () => {
         );
         return { updatedFiles: true };
       },
+      verifyBuild: verifyBuildOk,
       startPreview: async () => {
         await fs.writeFile(path.join(root, "package-lock.json"), "{}\n");
         return "http://127.0.0.1:41342";
@@ -188,6 +195,7 @@ describe("DyadPrototypeExecutor", () => {
         );
         return { updatedFiles: true };
       },
+      verifyBuild: verifyBuildOk,
       startPreview,
     };
     const executor = new DyadPrototypeExecutor(facade, registry());
@@ -206,6 +214,10 @@ describe("DyadPrototypeExecutor", () => {
       turns++;
       if (turns === 2) {
         expect(input.prompt).toContain("Factory headless build correction");
+        expect(input.prompt).toContain(
+          "did not produce an admissible, buildable implementation",
+        );
+        expect(input.prompt).toContain("Use write_file or search_replace now");
         await fs.writeFile(
           path.join(root, "src", "App.tsx"),
           "export default () => <main>repaired</main>;\n",
@@ -217,6 +229,7 @@ describe("DyadPrototypeExecutor", () => {
       createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
       bindModel: async () => undefined,
       runBuild,
+      verifyBuild: verifyBuildOk,
       startPreview: async () => "http://127.0.0.1:41342",
     };
     const executor = new DyadPrototypeExecutor(facade, registry());
@@ -229,6 +242,191 @@ describe("DyadPrototypeExecutor", () => {
     expect(result.state).toBe("completed");
   });
 
+  it("repairs a functional turn that only changes ancillary styles", async () => {
+    const root = await appRoot();
+    let turns = 0;
+    const runBuild = vi.fn(async (input) => {
+      turns++;
+      if (turns === 1) {
+        await fs.writeFile(
+          path.join(root, "src", "index.css"),
+          "@tailwind base;\n",
+        );
+      } else {
+        expect(input.prompt).toContain("ancillary config/style-only change");
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>functional repaired</main>;\n",
+        );
+      }
+      return { updatedFiles: true };
+    });
+    const startPreview = vi.fn(async () => "http://127.0.0.1:41342");
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
+      verifyBuild: verifyBuildOk,
+      startPreview,
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    const result = await executor.execute(request("functional"), {
+      operationId: "op-functional-style-repair",
+    });
+
+    expect(runBuild).toHaveBeenCalledTimes(2);
+    expect(startPreview).toHaveBeenCalledTimes(1);
+    expect(result.state).toBe("completed");
+  });
+
+  it("repairs a functional implementation after build verification fails", async () => {
+    const root = await appRoot();
+    let turns = 0;
+    const runBuild = vi.fn(async (input) => {
+      turns++;
+      if (turns === 2) {
+        expect(input.prompt).toContain("# Build verification failure");
+        expect(input.prompt).toContain("Unexpected token");
+      }
+      await fs.writeFile(
+        path.join(root, "src", "App.tsx"),
+        `export default () => <main>turn ${turns}</main>;\n`,
+      );
+      return { updatedFiles: true };
+    });
+    const verifyBuild = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "src/pages/Index.tsx:65 Unexpected token",
+      })
+      .mockResolvedValueOnce({ ok: true });
+    const startPreview = vi.fn(async () => "http://127.0.0.1:41342");
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
+      verifyBuild,
+      startPreview,
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    const result = await executor.execute(request("functional"), {
+      operationId: "op-build-repair",
+    });
+
+    expect(runBuild).toHaveBeenCalledTimes(2);
+    expect(verifyBuild).toHaveBeenCalledTimes(2);
+    expect(startPreview).toHaveBeenCalledTimes(1);
+    expect(result.state).toBe("completed");
+  });
+
+  it("fails closed when functional build verification fails twice", async () => {
+    const root = await appRoot();
+    let turns = 0;
+    const runBuild = vi.fn(async () => {
+      turns++;
+      await fs.writeFile(
+        path.join(root, "src", "App.tsx"),
+        `export default () => <main>broken ${turns}</main>;\n`,
+      );
+      return { updatedFiles: true };
+    });
+    const verifyBuild = vi.fn(async () => ({
+      ok: false,
+      error: "vite build failed: Unexpected token",
+    }));
+    const startPreview = vi.fn(async () => "http://127.0.0.1:41342");
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
+      verifyBuild,
+      startPreview,
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    await expect(
+      executor.execute(request("functional"), {
+        operationId: "op-build-fail-closed",
+      }),
+    ).rejects.toThrow("functional build verification failed");
+
+    expect(runBuild).toHaveBeenCalledTimes(3);
+    expect(verifyBuild).toHaveBeenCalledTimes(3);
+    expect(startPreview).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when only an existing but unreachable component changes", async () => {
+    const root = await appRoot();
+    await fs.mkdir(path.join(root, "src", "components"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "src", "components", "Card.tsx"),
+      "export const Card = () => <div>original</div>;\n",
+    );
+
+    let turns = 0;
+    const runBuild = vi.fn(async () => {
+      turns++;
+      await fs.writeFile(
+        path.join(root, "src", "components", "Card.tsx"),
+        `export const Card = () => <div>orphan turn ${turns}</div>;\n`,
+      );
+      return { updatedFiles: true };
+    });
+    const startPreview = vi.fn(async () => "http://127.0.0.1:41342");
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
+      verifyBuild: verifyBuildOk,
+      startPreview,
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    await expect(
+      executor.execute(request("functional"), {
+        operationId: "op-functional-unreachable-existing",
+      }),
+    ).rejects.toThrow("without an admissible functional source change");
+
+    expect(runBuild).toHaveBeenCalledTimes(3);
+    expect(startPreview).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for a functional build that only creates an unreferenced page", async () => {
+    const root = await appRoot();
+    let turns = 0;
+    const runBuild = vi.fn(async () => {
+      turns++;
+      await fs.mkdir(path.join(root, "src", "pages"), { recursive: true });
+      await fs.writeFile(
+        path.join(root, "src", "pages", "Dashboard.tsx"),
+        `export default () => <main>dashboard turn ${turns}</main>;\n`,
+      );
+      return { updatedFiles: true };
+    });
+    const startPreview = vi.fn(async () => "http://127.0.0.1:41342");
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild,
+      verifyBuild: verifyBuildOk,
+      startPreview,
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+
+    await expect(
+      executor.execute(request("functional"), {
+        operationId: "op-functional-unreferenced",
+      }),
+    ).rejects.toThrow("without an admissible functional source change");
+
+    expect(runBuild).toHaveBeenCalledTimes(3);
+    expect(startPreview).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Dyad reports completion without source mutation", async () => {
     const root = await appRoot();
     const runBuild = vi.fn(async () => ({ updatedFiles: false }));
@@ -236,6 +434,7 @@ describe("DyadPrototypeExecutor", () => {
       createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
       bindModel: async () => undefined,
       runBuild,
+      verifyBuild: verifyBuildOk,
       startPreview: async () => "http://127.0.0.1:41342",
     };
     const executor = new DyadPrototypeExecutor(facade, registry());
@@ -243,7 +442,7 @@ describe("DyadPrototypeExecutor", () => {
     await expect(
       executor.execute(request("static"), { operationId: "op-no-change" }),
     ).rejects.toThrow("without changing prototype source");
-    expect(runBuild).toHaveBeenCalledTimes(2);
+    expect(runBuild).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed for a model identity that is not admitted", async () => {

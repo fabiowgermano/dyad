@@ -5,7 +5,11 @@ import type {
   FactoryPrototypeOperation,
 } from "./protocol";
 import type { PrototypeExecutor } from "./durable_runtime";
-import { buildSourceManifest } from "./source_manifest";
+import { buildSourceManifest, type SourceManifest } from "./source_manifest";
+import {
+  buildReachableFunctionalPaths,
+  isFunctionalCodePath,
+} from "./source_reachability";
 import { FactoryModelRegistry } from "./model_registry";
 
 export interface DyadCreatedApp {
@@ -34,6 +38,11 @@ export interface DyadExecutionFacade {
   }): Promise<{
     updatedFiles: boolean;
     providerRequestId?: string;
+  }>;
+
+  verifyBuild(input: { appPath: string }): Promise<{
+    ok: boolean;
+    error?: string;
   }>;
 
   startPreview(input: { appId: number; operationId: string }): Promise<string>;
@@ -95,10 +104,18 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     });
 
     const beforeBuild = await buildSourceManifest(created.resolvedPath);
+    const beforeReachable =
+      request.requirement === "functional"
+        ? await buildReachableFunctionalPaths(created.resolvedPath, beforeBuild)
+        : new Set<string>();
     let buildManifest = beforeBuild;
     let providerRequestId: string | undefined;
+    let functionalBuildVerified = request.requirement !== "functional";
+    let lastVerificationError: string | undefined;
+    let admissibleBuildChange = false;
 
     for (let turn = 1; turn <= MAX_BUILD_TURNS; turn++) {
+      const manifestBeforeTurn = buildManifest;
       const build = await this.facade.runBuild({
         appId: created.appId,
         chatId: created.chatId,
@@ -113,22 +130,72 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
             : renderRepairPrompt(
                 request,
                 beforeBuild.files.map((file) => file.path),
+                lastVerificationError,
               ),
       });
       providerRequestId = build.providerRequestId ?? providerRequestId;
       buildManifest = await buildSourceManifest(created.resolvedPath);
-      if (buildManifest.sourceSha256 !== beforeBuild.sourceSha256) {
+
+      const turnChanged =
+        buildManifest.sourceSha256 !== manifestBeforeTurn.sourceSha256;
+      const afterReachable =
+        request.requirement === "functional"
+          ? await buildReachableFunctionalPaths(
+              created.resolvedPath,
+              buildManifest,
+            )
+          : new Set<string>();
+      admissibleBuildChange = isAdmissibleBuildChange(
+        request,
+        beforeBuild,
+        buildManifest,
+        beforeReachable,
+        afterReachable,
+      );
+
+      if (!admissibleBuildChange) {
+        continue;
+      }
+
+      if (request.requirement !== "functional") {
         break;
       }
+
+      // After a failed verification, the repair turn must actually change
+      // source again before the same candidate can be re-verified.
+      if (turn > 1 && lastVerificationError && !turnChanged) {
+        continue;
+      }
+
+      const verification = await this.facade.verifyBuild({
+        appPath: created.resolvedPath,
+      });
+      if (verification.ok) {
+        functionalBuildVerified = true;
+        break;
+      }
+
+      lastVerificationError =
+        verification.error ?? "build verification failed without details";
     }
 
-    // Freeze source evidence immediately after the Dyad build. Preview startup
-    // may install dependencies or create package-manager metadata; those are
-    // runtime side effects and must never be allowed to manufacture a false
-    // "prototype changed" signal or contaminate the artifact hash.
-    if (buildManifest.sourceSha256 === beforeBuild.sourceSha256) {
+    // Freeze source evidence immediately after the Dyad build. Verification
+    // may install dependencies or emit generated build outputs; those are
+    // runtime side effects and must never manufacture a false source-change
+    // signal or contaminate the returned artifact hash.
+    if (!admissibleBuildChange) {
+      const reason =
+        request.requirement === "functional"
+          ? "without an admissible functional source change"
+          : "without changing prototype source";
       throw new Error(
-        `Dyad build completed without changing prototype source after ${MAX_BUILD_TURNS} bounded turns`,
+        `Dyad build completed ${reason} after ${MAX_BUILD_TURNS} bounded turns`,
+      );
+    }
+
+    if (request.requirement === "functional" && !functionalBuildVerified) {
+      throw new Error(
+        `Dyad functional build verification failed after ${MAX_BUILD_TURNS} bounded turns: ${lastVerificationError ?? "unknown build error"}`,
       );
     }
 
@@ -151,12 +218,35 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
   }
 }
 
+function isAdmissibleBuildChange(
+  request: FactoryCreatePrototypeRequest,
+  before: SourceManifest,
+  after: SourceManifest,
+  beforeReachable: Set<string>,
+  afterReachable: Set<string>,
+): boolean {
+  if (after.sourceSha256 === before.sourceSha256) return false;
+  if (request.requirement !== "functional") return true;
+
+  const beforeByPath = new Map(
+    before.files.map((file) => [file.path, file.sha256] as const),
+  );
+  const reachable = new Set([...beforeReachable, ...afterReachable]);
+
+  return after.files.some((file) => {
+    if (!isFunctionalCodePath(file.path) || !reachable.has(file.path)) {
+      return false;
+    }
+    return beforeByPath.get(file.path) !== file.sha256;
+  });
+}
+
 function projectName(operationId: string): string {
   const compact = operationId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(-48);
   return `Factory ${compact || crypto.randomUUID()}`;
 }
 
-const MAX_BUILD_TURNS = 2;
+const MAX_BUILD_TURNS = 3;
 const MAX_WORKSPACE_HINT_FILES = 120;
 
 function intentId(
@@ -198,7 +288,9 @@ function renderBuildPrompt(
     "Inspect the existing workspace with the available file tools, then use the available mutation tools to implement the requested prototype directly in the workspace. " +
     toolArgumentContract() +
     "Preserve existing dependencies unless the brief explicitly requires otherwise. " +
-    "Finish only after the requested source changes have actually been written to disk.\n\n" +
+    "Prioritize user-visible implementation in reachable app code; do not satisfy the request with ancillary config, lockfile, or stylesheet-only changes. " +
+    "If you create a new page or component, wire it into the existing entry point or routing unless the framework makes the new file reachable by convention. " +
+    "Finish only after the requested behavior and acceptance criteria are implemented in the actual app.\n\n" +
     "# Known workspace files\n" +
     (workspaceHint(workspacePaths) ||
       "- inspect the workspace with file tools") +
@@ -226,15 +318,23 @@ function renderBuildPrompt(
 function renderRepairPrompt(
   request: FactoryCreatePrototypeRequest,
   workspacePaths: string[],
+  buildVerificationError?: string,
 ): string {
+  const verificationContext = buildVerificationError
+    ? "\n\n# Build verification failure\nThe previous implementation did not compile. Fix this exact build failure before finishing:\n" +
+      buildVerificationError.trim()
+    : "";
+
   return (
     "# Factory headless build correction\n" +
-    "The previous build turn completed without writing any source change. " +
-    "This operation cannot succeed with a prose answer. Do not ask the user questions and do not merely show code. " +
-    "Use the available file-reading and file-mutation tools now. Inspect one of the known existing source files below, then write the requested implementation into the actual workspace. " +
+    "The previous build turn did not produce an admissible, buildable implementation of the requested prototype. " +
+    "This operation cannot succeed with a prose answer, an ancillary config/style-only change, or an unreferenced new page. Do not ask the user questions and do not merely show code. " +
+    "The previous turn already inspected the workspace, so keep further inspection minimal. " +
+    "Use write_file or search_replace now to implement the requested prototype in reachable app code, wiring any new surface into the existing entry point or routing when required. " +
     toolArgumentContract() +
-    "Finish only after a mutation tool succeeds.\n\n" +
-    "# Known workspace files\n" +
+    "Continue until the requested behavior and acceptance criteria are observable in the app." +
+    verificationContext +
+    "\n\n# Known workspace files\n" +
     (workspaceHint(workspacePaths) ||
       "- inspect the workspace with file tools") +
     "\n\n# Prototype brief\n" +

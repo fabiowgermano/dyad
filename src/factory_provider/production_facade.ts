@@ -1,3 +1,4 @@
+import util from "node:util";
 import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -17,6 +18,16 @@ import type {
 } from "@/chat_stream/protocol";
 import type { ModelSelection } from "@/lib/schemas";
 import { startFactoryPreview } from "./preview_runtime";
+import { simpleSpawn } from "@/ipc/utils/simpleSpawn";
+import {
+  choosePackageManagerFromSignal,
+  getPackageManagerSignal,
+} from "@/ipc/utils/package_manager_selection";
+import {
+  getPackageManagerCommandEnv,
+  getPnpmMinimumReleaseAgeSupport,
+  PNPM_INSTALL_POLICY_ARGS,
+} from "@/ipc/utils/socket_firewall";
 import type { DyadCreatedApp, DyadExecutionFacade } from "./prototype_executor";
 
 let chatRuntimeRegistered = false;
@@ -168,6 +179,52 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     };
   }
 
+  async verifyBuild(input: {
+    appPath: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    const signal = getPackageManagerSignal(input.appPath);
+    const pnpmSupport = await getPnpmMinimumReleaseAgeSupport();
+    const packageManager = choosePackageManagerFromSignal({
+      signal,
+      pnpmAvailable: pnpmSupport.available,
+    });
+
+    const installCommand =
+      packageManager === "pnpm"
+        ? `pnpm ${PNPM_INSTALL_POLICY_ARGS.join(" ")} install --frozen-lockfile`
+        : signal.hasNpmLockfile
+          ? "npm ci --legacy-peer-deps"
+          : "npm install --legacy-peer-deps --package-lock=false";
+    const buildCommand =
+      packageManager === "pnpm" ? "pnpm run build" : "npm run build";
+
+    try {
+      await simpleSpawn({
+        command: installCommand,
+        cwd: input.appPath,
+        successMessage: "Factory prototype dependencies verified",
+        errorPrefix: "Factory prototype dependency install failed",
+        env: getPackageManagerCommandEnv(),
+        timeoutMs: 3 * 60 * 1_000,
+      });
+      await simpleSpawn({
+        command: buildCommand,
+        cwd: input.appPath,
+        successMessage: "Factory prototype build verified",
+        errorPrefix: "Factory prototype build failed",
+        env: getPackageManagerCommandEnv(),
+        timeoutMs: 3 * 60 * 1_000,
+      });
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: boundBuildError(util.stripVTControlCharacters(message)),
+      };
+    }
+  }
+
   startPreview(input: { appId: number; operationId: string }): Promise<string> {
     return startFactoryPreview({
       appId: input.appId,
@@ -179,4 +236,18 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
 function boundError(message: string): string {
   const normalized = message.trim();
   return normalized.length <= 2_000 ? normalized : normalized.slice(0, 2_000);
+}
+
+function boundBuildError(message: string): string {
+  const normalized = message.trim();
+  const maxLength = 4_000;
+  if (normalized.length <= maxLength) return normalized;
+
+  const headLength = 700;
+  const tailLength = maxLength - headLength - 32;
+  return (
+    normalized.slice(0, headLength) +
+    "\n...[build output truncated]...\n" +
+    normalized.slice(-tailLength)
+  );
 }

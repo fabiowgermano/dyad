@@ -28,6 +28,8 @@ import { chats, messages, type AiMessagesJsonV6 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ClaudeCodeModel } from "@/ipc/services/claude_code/model";
 import { startTurnStallWatchdog } from "./turn_stall_watchdog";
+import { getFactoryHeadlessStepOverride } from "./factory_headless_step_policy";
+import { repairFactoryHeadlessToolCall } from "./factory_headless_tool_repair";
 import { requireMcpToolConsent } from "@/ipc/utils/mcp_consent";
 import { buildMcpAutoApprove } from "./mcp_auto_consent";
 import { scheduleChatSearchIndexing } from "./chat_search_indexer";
@@ -1135,6 +1137,9 @@ export async function handleLocalAgentStream(
     // we can't tell if they modify state); plan mode includes only planning tools.
     const factoryHeadlessBuild =
       buildMode && process.env.DYAD_HEADLESS_SERVICE === "1";
+    const factoryHeadlessRepair =
+      factoryHeadlessBuild &&
+      req.prompt.trimStart().startsWith("# Factory headless build correction");
     const buildOptions = {
       toolProfile,
       readOnly,
@@ -1453,14 +1458,20 @@ export async function handleLocalAgentStream(
             system: systemPrompt,
             messages: sanitizedAttemptMessages,
             tools: allTools,
+            experimental_repairToolCall: factoryHeadlessBuild
+              ? async ({ toolCall, messages: repairMessages }) =>
+                  repairFactoryHeadlessToolCall({
+                    toolCall,
+                    messages: repairMessages,
+                  })
+              : undefined,
             toolChoice: factoryHeadlessBuild ? "required" : "auto",
             stopWhen: [
-              stepCountIs(maxToolCallSteps),
-              // Factory headless Build completes immediately after a real file mutation.
-              // The write/search tool has already executed before stopWhen is evaluated.
-              ...(factoryHeadlessBuild
-                ? [hasToolCall("write_file"), hasToolCall("search_replace")]
-                : []),
+              stepCountIs(
+                factoryHeadlessBuild
+                  ? Math.min(maxToolCallSteps, 12)
+                  : maxToolCallSteps,
+              ),
               // Stop after the integration tool so the next stream is started
               // with a freshly built system prompt that includes the new
               // Supabase/Neon context. The frontend auto-triggers a hidden
@@ -1628,6 +1639,20 @@ export async function handleLocalAgentStream(
                 result = {
                   ...(result ?? stepOptions),
                   messages: normalizedTargetMessages,
+                };
+              }
+
+              const headlessStepOverride = factoryHeadlessBuild
+                ? getFactoryHeadlessStepOverride({
+                    stepNumber: options.stepNumber,
+                    workspaceMutated: ctx.workspaceMutated === true,
+                    repairTurn: factoryHeadlessRepair,
+                  })
+                : undefined;
+              if (headlessStepOverride) {
+                result = {
+                  ...(result ?? stepOptions),
+                  ...headlessStepOverride,
                 };
               }
 

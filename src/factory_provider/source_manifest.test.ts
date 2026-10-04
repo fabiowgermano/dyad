@@ -43,16 +43,22 @@ describe("buildSourceManifest", () => {
     expect(ma.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
-  it("excludes non-source dependency and git directories", async () => {
+  it("excludes dependency, git, and generated build directories", async () => {
     const root = await tempRoot();
     await fs.mkdir(path.join(root, "node_modules", "x"), { recursive: true });
     await fs.mkdir(path.join(root, ".git"), { recursive: true });
+    await fs.mkdir(path.join(root, "dist", "assets"), { recursive: true });
+    await fs.mkdir(path.join(root, "build"), { recursive: true });
+    await fs.mkdir(path.join(root, ".next"), { recursive: true });
     await fs.writeFile(path.join(root, "app.ts"), "ok\n");
     await fs.writeFile(
       path.join(root, "node_modules", "x", "index.js"),
       "no\n",
     );
     await fs.writeFile(path.join(root, ".git", "HEAD"), "ref\n");
+    await fs.writeFile(path.join(root, "dist", "assets", "app.js"), "built\n");
+    await fs.writeFile(path.join(root, "build", "app.js"), "built\n");
+    await fs.writeFile(path.join(root, ".next", "server.js"), "built\n");
 
     const manifest = await buildSourceManifest(root);
     expect(manifest.files.map((file) => file.path)).toEqual(["app.ts"]);
