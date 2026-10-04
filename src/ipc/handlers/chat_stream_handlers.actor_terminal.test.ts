@@ -100,9 +100,11 @@ describe("createObservedChatStreamSender", () => {
     const observed = createObservedChatStreamSender(sender, observeTerminal);
 
     expect(observed.id).toBe(42);
+    expect(observed.routeKind).toBeUndefined();
     destroyed = true;
 
-    expect(Number.isInteger(observed.id)).toBe(false);
+    expect(observed.id).toBe(42);
+    expect(observed.routeKind).toBe("headless");
     observed.send("chat:response:end", { chatId: 7 });
     expect(observeTerminal).toHaveBeenCalledWith("chat:response:end", {
       chatId: 7,

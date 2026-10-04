@@ -369,11 +369,10 @@ export function createObservedChatStreamSender(
   };
   return new Proxy(sender, {
     get(target, property, receiver) {
-      if (property === "id" && targetIsUnavailable()) {
-        // High-volume routing treats non-integer endpoints as non-producers.
-        // This prevents a real webContents that closed after route selection
-        // from being re-registered through this observation proxy.
-        return Number.NaN;
+      if (property === "routeKind" && targetIsUnavailable()) {
+        // Once the presentation endpoint disappears, keep terminal observation
+        // alive but explicitly disable window routing for this proxy.
+        return "headless";
       }
       // `safeSend` must reach the proxy's `send` trap even if the presentation
       // endpoint disappeared. Actor completion is independent of renderer

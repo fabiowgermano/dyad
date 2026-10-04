@@ -28,9 +28,10 @@ function ensureHeadlessChatRuntime(): void {
 }
 
 const headlessSender: RoutableSafeSender = {
-  // NaN deliberately keeps high-volume delivery out of WindowRegistry while
-  // satisfying the sender identity contract used by the production stream.
-  id: Number.NaN,
+  // Explicitly non-window: high-volume delivery observes terminal events but
+  // never registers this endpoint in WindowRegistry.
+  id: 0,
+  routeKind: "headless",
   isDestroyed: () => false,
   isCrashed: () => false,
   send: () => undefined,
