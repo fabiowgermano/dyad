@@ -25,6 +25,9 @@ export function sendTelemetryEvent(
   eventName: string,
   properties?: Record<string, unknown>,
 ): void {
+  if (process.env.DYAD_HEADLESS_SERVICE === "1") {
+    return;
+  }
   try {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
