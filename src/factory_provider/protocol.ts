@@ -44,6 +44,33 @@ export const FactoryPrototypeOperationStateSchema = z.enum([
   "indeterminate",
 ]);
 
+/**
+ * Model usage as the model provider reported it, summed over every model call
+ * of the operation. A field that is absent is unknown, never zero: the service
+ * reports a dimension only when every call reported it. `modelRuns` is how many
+ * model runs (one per build turn, each an agent loop of steps) the figures cover; `scope` says what is excluded.
+ */
+export const FactoryPrototypeUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  costMicros: z.number().int().nonnegative().optional(),
+  currency: z.string().min(1).optional(),
+  modelRuns: z.number().int().nonnegative().optional(),
+  scope: z.string().min(1).optional(),
+});
+
+export type FactoryPrototypeUsage = z.infer<typeof FactoryPrototypeUsageSchema>;
+
+/** The Dyad-side model the admitted Factory identity was mapped to. */
+export const FactoryResolvedModelSchema = z.object({
+  provider: z.string().min(1),
+  name: z.string().min(1),
+});
+
 export const FactoryPrototypeOperationSchema = z.object({
   protocolVersion: z.literal(FACTORY_PROVIDER_PROTOCOL_VERSION),
   operationId: z.string().min(1),
@@ -57,6 +84,17 @@ export const FactoryPrototypeOperationSchema = z.object({
     .regex(/^[a-f0-9]{64}$/i)
     .optional(),
   providerRequestId: z.string().min(1).optional(),
+  /** Hash of the workspace source again, taken when the preview was started. */
+  previewSourceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+  usage: FactoryPrototypeUsageSchema.optional(),
+  /** The Factory model identity the operation ran with (echo of the request). */
+  model: FactoryPrototypeModelSchema.optional(),
+  resolvedModel: FactoryResolvedModelSchema.optional(),
+  /** True only on a response that returned an operation already admitted. */
+  replayed: z.boolean().optional(),
   errorCode: z.string().min(1).optional(),
   errorMessage: z.string().min(1).optional(),
 });

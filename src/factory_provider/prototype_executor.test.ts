@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   DyadPrototypeExecutor,
+  FactoryExecutionError,
   type DyadExecutionFacade,
 } from "./prototype_executor";
 import { FactoryModelRegistry } from "./model_registry";
@@ -461,5 +462,99 @@ describe("DyadPrototypeExecutor", () => {
         { operationId: "op-model" },
       ),
     ).rejects.toThrow("not admitted");
+  });
+
+  it("reports the admitted model, the Dyad model it ran on and the provider usage", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async (input) => {
+        input.usage.beginTurn();
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>changed</main>;\n",
+        );
+        input.usage.add({
+          inputTokens: 120,
+          outputTokens: 30,
+          totalTokens: 150,
+        });
+        return { updatedFiles: true, providerRequestId: "req-1" };
+      },
+      verifyBuild: verifyBuildOk,
+      startPreview: async () => "http://10.77.0.2:41342/",
+    };
+    const result = await new DyadPrototypeExecutor(facade, registry()).execute(
+      request(),
+      { operationId: "op-usage" },
+    );
+    expect(result.model).toEqual(request().model);
+    expect(result.resolvedModel).toEqual({
+      provider: "openrouter",
+      name: "model-a",
+    });
+    expect(result.usage).toMatchObject({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      modelRuns: 1,
+    });
+    expect(result.previewSourceSha256).toBe(result.sourceSha256);
+  });
+
+  it("keeps the usage of a build that spent tokens and then failed", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async (input) => {
+        input.usage.beginTurn();
+        input.usage.add({ inputTokens: 10, outputTokens: 1, totalTokens: 11 });
+        return { updatedFiles: false };
+      },
+      verifyBuild: verifyBuildOk,
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const failure = await new DyadPrototypeExecutor(facade, registry())
+      .execute(request("static"), { operationId: "op-fail" })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FactoryExecutionError);
+    expect((failure as FactoryExecutionError).detail.usage).toMatchObject({
+      totalTokens: 33,
+      modelRuns: 3,
+    });
+    expect((failure as FactoryExecutionError).detail.resolvedModel).toEqual({
+      provider: "openrouter",
+      name: "model-a",
+    });
+  });
+
+  it("refuses to complete when the frozen source changes under the preview", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>frozen</main>;\n",
+        );
+        return { updatedFiles: true };
+      },
+      verifyBuild: verifyBuildOk,
+      startPreview: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>drifted</main>;\n",
+        );
+        return "http://127.0.0.1:41342";
+      },
+    };
+    await expect(
+      new DyadPrototypeExecutor(facade, registry()).execute(request(), {
+        operationId: "op-drift",
+      }),
+    ).rejects.toThrow("does not match the recorded source");
   });
 });

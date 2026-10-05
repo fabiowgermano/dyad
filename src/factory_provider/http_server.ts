@@ -11,7 +11,11 @@ const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 
 export interface FactoryProviderServerOptions {
   runtime: FactoryPrototypeRuntime;
-  token: string;
+  /**
+   * The accepted bearer tokens, read on every request (two while one is being
+   * rotated). A failure to read them refuses the request.
+   */
+  tokens: () => readonly string[];
   host?: string;
   port?: number;
   maxBodyBytes?: number;
@@ -45,15 +49,31 @@ function unauthorized(res: ServerResponse): void {
   sendJson(res, 401, { error: { code: "UNAUTHORIZED" } });
 }
 
-function validBearer(req: IncomingMessage, expectedToken: string): boolean {
+function validBearer(
+  req: IncomingMessage,
+  readTokens: () => readonly string[],
+): boolean {
   const value = req.headers.authorization;
   if (!value?.startsWith("Bearer ")) return false;
+  let expectedTokens: readonly string[];
+  try {
+    expectedTokens = readTokens();
+  } catch {
+    return false;
+  }
   const actual = Buffer.from(value.slice("Bearer ".length));
-  const expected = Buffer.from(expectedToken);
-  return (
-    actual.length === expected.length &&
-    crypto.timingSafeEqual(actual, expected)
-  );
+  // Compare against every accepted token without stopping at the first match.
+  let ok = false;
+  for (const token of expectedTokens) {
+    const expected = Buffer.from(token);
+    if (
+      actual.length === expected.length &&
+      crypto.timingSafeEqual(actual, expected)
+    ) {
+      ok = true;
+    }
+  }
+  return ok;
 }
 
 async function readJsonBody(
@@ -106,7 +126,10 @@ function safeOperationId(pathname: string): string | null {
 export async function startFactoryProviderServer(
   options: FactoryProviderServerOptions,
 ): Promise<FactoryProviderServer> {
-  if (options.token.length < 32) {
+  if (options.tokens().length === 0) {
+    throw new Error("Factory provider has no service token");
+  }
+  if (options.tokens().some((token) => token.length < 32)) {
     throw new Error("Factory provider token must be at least 32 characters");
   }
   const host = options.host ?? "127.0.0.1";
@@ -127,7 +150,7 @@ export async function startFactoryProviderServer(
         return;
       }
 
-      if (!validBearer(req, options.token)) {
+      if (!validBearer(req, options.tokens)) {
         unauthorized(res);
         return;
       }

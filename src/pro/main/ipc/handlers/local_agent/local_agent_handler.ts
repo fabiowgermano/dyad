@@ -1,4 +1,5 @@
 import { recordShellReviewOutcome } from "./shell_review_history";
+import { reportFactoryModelUsage } from "@/factory_provider/usage_collector";
 import { shellExecutionGuidance } from "@/shared/shell_capability";
 import { SubscriptionBillingError } from "@/shared/subscription_billing_error";
 import {
@@ -1734,6 +1735,13 @@ export async function handleLocalAgentStream(
               }
             },
             onFinish: async (response) => {
+              // Factory headless operations meter the whole agent run (every
+              // step), not just the last one; a no-op outside a Factory chat.
+              reportFactoryModelUsage(
+                req.chatId,
+                response.totalUsage ?? response.usage,
+                response.providerMetadata,
+              );
               const totalTokens = response.usage?.totalTokens;
               const inputTokens = response.usage?.inputTokens;
               const cachedInputTokens = response.usage?.cachedInputTokens;

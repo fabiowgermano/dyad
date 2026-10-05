@@ -44,3 +44,6 @@ jobs:
           src/factory_provider/prototype_executor.test.ts
           src/factory_provider/chat_intent_hash.test.ts
           src/factory_provider/service_main.test.ts
+          src/factory_provider/usage_collector.test.ts
+          src/factory_provider/service_tokens.test.ts
+          src/factory_provider/preview_gateway.test.ts

@@ -11,6 +11,25 @@ import {
   isFunctionalCodePath,
 } from "./source_reachability";
 import { FactoryModelRegistry } from "./model_registry";
+import { FactoryUsageCollector } from "./usage_collector";
+import type { FactoryPrototypeUsage } from "./protocol";
+
+/**
+ * A failed execution that keeps what the provider spent before it failed, so
+ * the operation can report usage and model even when it did not complete.
+ */
+export class FactoryExecutionError extends Error {
+  constructor(
+    message: string,
+    readonly detail: {
+      usage?: FactoryPrototypeUsage;
+      resolvedModel?: { provider: string; name: string };
+    },
+  ) {
+    super(message);
+    this.name = "FactoryExecutionError";
+  }
+}
 
 export interface DyadCreatedApp {
   appId: number;
@@ -35,6 +54,8 @@ export interface DyadExecutionFacade {
     operationId: string;
     intentId: string;
     prompt: string;
+    /** Attached to the chat for this turn; counts the turn and its usage. */
+    usage: FactoryUsageCollector;
   }): Promise<{
     updatedFiles: boolean;
     providerRequestId?: string;
@@ -92,7 +113,33 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
         "Factory Dyad v1 does not admit the claude-code execution backend",
       );
     }
+    const usage = new FactoryUsageCollector();
+    const resolvedModel = {
+      provider: selection.provider,
+      name: selection.name,
+    };
+    try {
+      return await this.run(request, identity, selection, usage, resolvedModel);
+    } catch (error) {
+      throw new FactoryExecutionError(
+        error instanceof Error ? error.message : String(error),
+        { usage: usage.snapshot(), resolvedModel },
+      );
+    }
+  }
 
+  private async run(
+    request: FactoryCreatePrototypeRequest,
+    identity: { operationId: string },
+    selection: ReturnType<FactoryModelRegistry["resolve"]>,
+    usage: FactoryUsageCollector,
+    resolvedModel: { provider: string; name: string },
+  ): Promise<
+    Omit<
+      FactoryPrototypeOperation,
+      "protocolVersion" | "operationId" | "idempotencyKey"
+    >
+  > {
     const created = await this.facade.createApp({
       name: projectName(identity.operationId),
       operationId: identity.operationId,
@@ -120,6 +167,7 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
         appId: created.appId,
         chatId: created.chatId,
         operationId: `${identity.operationId}-build-${turn}`,
+        usage,
         intentId: intentId(identity.operationId, request.idempotencyKey, turn),
         prompt:
           turn === 1
@@ -207,13 +255,42 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       });
     }
 
+    // The preview serves the workspace the build produced. Starting it may add
+    // files (a lockfile, caches) that never belong to the frozen source, but
+    // no file of the frozen source may have changed or disappeared: that would
+    // make the preview something other than the source recorded here.
+    if (previewRef) {
+      const served = await buildSourceManifest(created.resolvedPath);
+      const servedByPath = new Map(
+        served.files.map((file) => [file.path, file.sha256] as const),
+      );
+      const drifted = buildManifest.files.filter(
+        (file) => servedByPath.get(file.path) !== file.sha256,
+      );
+      if (drifted.length > 0) {
+        throw new Error(
+          `Prototype source changed after the build was frozen (${drifted
+            .slice(0, 5)
+            .map((file) => file.path)
+            .join(", ")}); the preview does not match the recorded source`,
+        );
+      }
+    }
+
     return {
       state: "completed",
       projectId: String(created.appId),
       previewRef,
       files: buildManifest.files,
       sourceSha256: buildManifest.sourceSha256,
+      // The frozen source was intact while the preview was live.
+      ...(previewRef
+        ? { previewSourceSha256: buildManifest.sourceSha256 }
+        : {}),
       providerRequestId,
+      usage: usage.snapshot(),
+      model: request.model,
+      resolvedModel,
     };
   }
 }

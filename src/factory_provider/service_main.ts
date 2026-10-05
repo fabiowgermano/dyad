@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { loadFactoryWindowsServiceConfig } from "./windows_service_config";
+import { readServiceTokens } from "./service_tokens";
+import { FactoryPreviewGateway } from "./preview_gateway";
 
 export async function runFactoryDyadService(): Promise<void> {
   const config = loadFactoryWindowsServiceConfig();
@@ -52,13 +54,20 @@ export async function runFactoryDyadService(): Promise<void> {
 
   const store = new PrototypeOperationStore(config.operationsDatabasePath);
   const models = FactoryModelRegistry.fromFile(config.modelRegistryFile);
-  const facade = new ProductionDyadExecutionFacade();
+  const previewGateway = config.previewBindHost
+    ? new FactoryPreviewGateway({
+        bindHost: config.previewBindHost,
+        allowedPeers: config.previewAllowedPeers,
+        portRange: config.previewPortRange,
+      })
+    : undefined;
+  const facade = new ProductionDyadExecutionFacade(previewGateway);
   const executor = new DyadPrototypeExecutor(facade, models);
   const runtime = new DurableFactoryPrototypeRuntime({ store, executor });
 
   const server = await startFactoryProviderServer({
     runtime,
-    token: config.token,
+    tokens: () => readServiceTokens(config.tokenFile),
     host: config.bindHost,
     port: config.port,
     dyadVersion: config.buildVersion,
@@ -84,6 +93,7 @@ export async function runFactoryDyadService(): Promise<void> {
       );
       try {
         await server.close();
+        await previewGateway?.close();
       } finally {
         try {
           stopAllAppsSync();
