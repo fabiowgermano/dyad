@@ -15,7 +15,7 @@ export function repairFactoryHeadlessToolCall(input: {
 
   const aliasPath = nonEmptyString(args.file_path);
   if (aliasPath) {
-    const repaired = { ...args, path: aliasPath };
+    const repaired: JsonObject = { ...args, path: aliasPath };
     delete repaired.file_path;
     return {
       ...input.toolCall,
@@ -74,7 +74,8 @@ function modelMessageText(message: ModelMessage): string {
   if (!Array.isArray(message.content)) return "";
 
   return message.content
-    .map((part) => {
+    .map((raw) => {
+      const part = raw as unknown;
       if (!isJsonObject(part)) return "";
       return part.type === "text" && typeof part.text === "string"
         ? part.text

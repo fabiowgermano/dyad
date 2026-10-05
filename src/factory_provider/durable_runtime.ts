@@ -4,6 +4,7 @@ import type {
   FactoryPrototypeOperation,
 } from "./protocol";
 import { PrototypeOperationStore } from "./operation_store";
+import { FactoryExecutionError } from "./prototype_executor";
 import type { FactoryPrototypeRuntime } from "./runtime";
 
 export interface PrototypeExecutor {
@@ -71,7 +72,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
             "The idempotency key was already admitted for a different input SHA-256.",
         };
       }
-      return existing.operation;
+      return { ...existing.operation, replayed: true };
     }
 
     const operation: FactoryPrototypeOperation = {
@@ -79,6 +80,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
       operationId: this.operationId(),
       idempotencyKey: request.idempotencyKey,
       state: "accepted",
+      model: request.model,
     };
 
     try {
@@ -99,7 +101,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
               "The idempotency key was concurrently admitted for a different input SHA-256.",
           };
         }
-        return raced.operation;
+        return { ...raced.operation, replayed: true };
       }
       throw error;
     }
@@ -183,11 +185,18 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
         ...result,
       });
     } catch (error) {
+      // What the provider spent before failing is still the operation's usage.
+      const detail =
+        error instanceof FactoryExecutionError ? error.detail : undefined;
       this.store.update({
         ...running,
         state: "failed",
         errorCode: "EXECUTION_FAILED",
         errorMessage: safeErrorMessage(error),
+        ...(detail?.usage ? { usage: detail.usage } : {}),
+        ...(detail?.resolvedModel
+          ? { resolvedModel: detail.resolvedModel }
+          : {}),
       });
     }
   }

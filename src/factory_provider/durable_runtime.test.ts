@@ -9,6 +9,7 @@ import {
   type PrototypeExecutor,
 } from "./durable_runtime";
 import type { FactoryCreatePrototypeRequest } from "./protocol";
+import { FactoryExecutionError } from "./prototype_executor";
 
 const dirs: string[] = [];
 const stores: PrototypeOperationStore[] = [];
@@ -144,6 +145,8 @@ describe("DurableFactoryPrototypeRuntime", () => {
     const replay = await runtime.createPrototype(request());
 
     expect(replay.operationId).toBe(first.operationId);
+    expect(first.replayed).toBeUndefined();
+    expect(replay.replayed).toBe(true);
     await eventually(
       () => runtime.getOperation("op-1"),
       (value) => value?.state === "completed",
@@ -215,5 +218,35 @@ describe("DurableFactoryPrototypeRuntime", () => {
 
     expect(conflict.state).toBe("rejected");
     expect(conflict.errorCode).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  it("keeps the usage and model of an operation that failed after spending tokens", async () => {
+    const store = await makeStore();
+    const executor: PrototypeExecutor = {
+      async execute() {
+        throw new FactoryExecutionError("build failed", {
+          usage: { totalTokens: 77, modelRuns: 2 },
+          resolvedModel: { provider: "ollama", name: "qwen3.5:9b" },
+        });
+      },
+    };
+    const runtime = new DurableFactoryPrototypeRuntime({
+      store,
+      executor,
+      operationId: () => "op-f",
+    });
+    await runtime.createPrototype(request());
+    const failed = await eventually(
+      () => runtime.getOperation("op-f"),
+      (value) => value?.state === "failed",
+    );
+    expect(failed).toMatchObject({
+      state: "failed",
+      usage: { totalTokens: 77, modelRuns: 2 },
+      model: request().model,
+      resolvedModel: { provider: "ollama", name: "qwen3.5:9b" },
+    });
+    // the stored operation never carries the transient replay flag
+    expect(failed?.replayed).toBeUndefined();
   });
 });

@@ -29,6 +29,11 @@ import {
   PNPM_INSTALL_POLICY_ARGS,
 } from "@/ipc/utils/socket_firewall";
 import type { DyadCreatedApp, DyadExecutionFacade } from "./prototype_executor";
+import type { FactoryPreviewGateway } from "./preview_gateway";
+import {
+  attachFactoryUsageCollector,
+  type FactoryUsageCollector,
+} from "./usage_collector";
 
 let chatRuntimeRegistered = false;
 
@@ -49,6 +54,8 @@ const headlessSender: RoutableSafeSender = {
 };
 
 export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
+  constructor(private readonly previewGateway?: FactoryPreviewGateway) {}
+
   async createApp(input: {
     name: string;
     operationId: string;
@@ -102,12 +109,31 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     operationId: string;
     intentId: string;
     prompt: string;
+    usage: FactoryUsageCollector;
   }): Promise<{
     updatedFiles: boolean;
     providerRequestId?: string;
   }> {
     ensureHeadlessChatRuntime();
+    input.usage.beginTurn();
+    const detachUsage = attachFactoryUsageCollector(input.chatId, input.usage);
+    try {
+      return await this.runBuildTurn(input);
+    } finally {
+      detachUsage();
+    }
+  }
 
+  private async runBuildTurn(input: {
+    appId: number;
+    chatId: number;
+    operationId: string;
+    intentId: string;
+    prompt: string;
+  }): Promise<{
+    updatedFiles: boolean;
+    providerRequestId?: string;
+  }> {
     const invocationRef = {
       kind: "chat-stream" as const,
       entityKey: input.chatId,
@@ -225,11 +251,16 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
     }
   }
 
-  startPreview(input: { appId: number; operationId: string }): Promise<string> {
-    return startFactoryPreview({
+  async startPreview(input: {
+    appId: number;
+    operationId: string;
+  }): Promise<string> {
+    const local = await startFactoryPreview({
       appId: input.appId,
       operationId: `${input.operationId}-preview`,
     });
+    // Without a gateway the preview stays on loopback (host-only).
+    return this.previewGateway ? this.previewGateway.expose(local) : local;
   }
 }
 

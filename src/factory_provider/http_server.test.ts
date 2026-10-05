@@ -60,7 +60,7 @@ class FakeRuntime implements FactoryPrototypeRuntime {
 async function start(runtime = new FakeRuntime()) {
   running = await startFactoryProviderServer({
     runtime,
-    token: TOKEN,
+    tokens: () => [TOKEN],
     dyadVersion: "test",
     dyadCommit: "deadbeef",
   });
@@ -129,5 +129,27 @@ describe("Factory provider HTTP server", () => {
     expect(await response.json()).toMatchObject({
       error: { code: "INVALID_REQUEST" },
     });
+  });
+
+  it("accepts the current and the previous token and re-reads them per request", async () => {
+    let tokens = ["n".repeat(40), TOKEN];
+    running = await startFactoryProviderServer({
+      runtime: new FakeRuntime(),
+      tokens: () => tokens,
+      dyadVersion: "test",
+      dyadCommit: "deadbeef",
+    });
+    const base = `http://${running.host}:${running.port}`;
+    const get = (token: string) =>
+      fetch(`${base}/v1/operations/op-x`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+    expect((await get(TOKEN)).status).toBe(404);
+    expect((await get("n".repeat(40))).status).toBe(404);
+    tokens = ["n".repeat(40)];
+    expect((await get(TOKEN)).status).toBe(401);
+    expect((await get("n".repeat(40))).status).toBe(404);
+    tokens = [];
+    expect((await get("n".repeat(40))).status).toBe(401);
   });
 });
