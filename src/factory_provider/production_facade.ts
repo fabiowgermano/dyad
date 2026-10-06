@@ -207,7 +207,7 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
 
   async verifyBuild(input: {
     appPath: string;
-  }): Promise<{ ok: boolean; error?: string }> {
+  }): Promise<{ ok: boolean; error?: string; command?: string }> {
     const signal = getPackageManagerSignal(input.appPath);
     const pnpmSupport = await getPnpmMinimumReleaseAgeSupport();
     const packageManager = choosePackageManagerFromSignal({
@@ -241,11 +241,12 @@ export class ProductionDyadExecutionFacade implements DyadExecutionFacade {
         env: getPackageManagerCommandEnv(),
         timeoutMs: 3 * 60 * 1_000,
       });
-      return { ok: true };
+      return { ok: true, command: `${installCommand} && ${buildCommand}` };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
         ok: false,
+        command: `${installCommand} && ${buildCommand}`,
         error: boundBuildError(util.stripVTControlCharacters(message)),
       };
     }

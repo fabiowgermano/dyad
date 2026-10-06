@@ -47,3 +47,4 @@ jobs:
           src/factory_provider/usage_collector.test.ts
           src/factory_provider/service_tokens.test.ts
           src/factory_provider/preview_gateway.test.ts
+          src/factory_provider/preview_gateway_dyad_proxy.test.ts
