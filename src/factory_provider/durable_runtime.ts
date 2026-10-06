@@ -194,6 +194,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
         errorCode: "EXECUTION_FAILED",
         errorMessage: safeErrorMessage(error),
         ...(detail?.usage ? { usage: detail.usage } : {}),
+        ...(detail?.build ? { build: detail.build } : {}),
         ...(detail?.resolvedModel
           ? { resolvedModel: detail.resolvedModel }
           : {}),

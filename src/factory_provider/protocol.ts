@@ -65,6 +65,19 @@ export const FactoryPrototypeUsageSchema = z.object({
 
 export type FactoryPrototypeUsage = z.infer<typeof FactoryPrototypeUsageSchema>;
 
+/**
+ * The verification build of the prototype source: dependencies installed and
+ * the production build run in the workspace. `ok` is true only when the whole
+ * command succeeded; a functional prototype never completes without it.
+ */
+export const FactoryPrototypeBuildSchema = z.object({
+  ok: z.boolean(),
+  command: z.string().min(1),
+  error: z.string().min(1).optional(),
+});
+
+export type FactoryPrototypeBuild = z.infer<typeof FactoryPrototypeBuildSchema>;
+
 /** The Dyad-side model the admitted Factory identity was mapped to. */
 export const FactoryResolvedModelSchema = z.object({
   provider: z.string().min(1),
@@ -90,6 +103,8 @@ export const FactoryPrototypeOperationSchema = z.object({
     .regex(/^[a-f0-9]{64}$/i)
     .optional(),
   usage: FactoryPrototypeUsageSchema.optional(),
+  /** Result of the verification build; absent when none was run (static). */
+  build: FactoryPrototypeBuildSchema.optional(),
   /** The Factory model identity the operation ran with (echo of the request). */
   model: FactoryPrototypeModelSchema.optional(),
   resolvedModel: FactoryResolvedModelSchema.optional(),

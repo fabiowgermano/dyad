@@ -503,6 +503,83 @@ describe("DyadPrototypeExecutor", () => {
     expect(result.previewSourceSha256).toBe(result.sourceSha256);
   });
 
+  it("records the passing verification build with its command", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>built</main>;\n",
+        );
+        return { updatedFiles: true };
+      },
+      verifyBuild: async () => ({
+        ok: true,
+        command: "npm ci && npm run build",
+      }),
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const result = await new DyadPrototypeExecutor(facade, registry()).execute(
+      request(),
+      { operationId: "op-build" },
+    );
+    expect(result.build).toEqual({
+      ok: true,
+      command: "npm ci && npm run build",
+    });
+  });
+
+  it("reports the last failed verification build on a failed operation, and none for static", async () => {
+    const root = await appRoot();
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: async (input) => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          `export default () => <main>turn ${input.operationId}</main>;\n`,
+        );
+        return { updatedFiles: true };
+      },
+      verifyBuild: async () => ({
+        ok: false,
+        command: "npm run build",
+        error: "vite build failed",
+      }),
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const failure = await new DyadPrototypeExecutor(facade, registry())
+      .execute(request(), { operationId: "op-badbuild" })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FactoryExecutionError);
+    expect((failure as FactoryExecutionError).detail.build).toEqual({
+      ok: false,
+      command: "npm run build",
+      error: "vite build failed",
+    });
+
+    const staticFacade: DyadExecutionFacade = {
+      ...facade,
+      runBuild: async () => {
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>static</main>;\n",
+        );
+        return { updatedFiles: true };
+      },
+      verifyBuild: async () => {
+        throw new Error("static prototypes are not built");
+      },
+    };
+    const staticResult = await new DyadPrototypeExecutor(
+      staticFacade,
+      registry(),
+    ).execute(request("static"), { operationId: "op-static" });
+    expect(staticResult).not.toHaveProperty("build");
+  });
+
   it("keeps the usage of a build that spent tokens and then failed", async () => {
     const root = await appRoot();
     const facade: DyadExecutionFacade = {

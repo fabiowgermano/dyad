@@ -12,6 +12,7 @@ The Core ignores nothing it needs and trusts nothing it can recompute.
 | `resolvedModel`       | The Dyad-side model the registry mapped the identity to (`provider`, `name`). Evidence of what actually ran.                                                                                                                                                                                                                                                                                                                                             |
 | `usage`               | Provider-reported usage summed over every model run of the operation: `inputTokens`, `outputTokens`, `totalTokens`, `cacheReadTokens`, `reasoningTokens`, `costMicros` + `currency` (only when the provider charged a cost, e.g. OpenRouter), `modelRuns`, `scope`. A dimension is present only if every run reported it; a run that never reported makes `usage` absent. Absent means unknown, never zero. A failed operation keeps the usage it spent. |
 | `replayed`            | `true` only on the response to a `POST /v1/prototypes` whose idempotency key was already admitted. It is never stored, and a replay never starts a model run.                                                                                                                                                                                                                                                                                            |
+| `build`               | Result of the verification build: `{ok, command, error?}`. A functional prototype completes only with `ok: true`; a failed operation carries the last failed build with a bounded `error`; absent for a static prototype (no build is run).                                                                                                                                                                                                              |
 | `previewSourceSha256` | Equals `sourceSha256` when the files of the frozen source were intact while the preview was live. A frozen file that changed or disappeared fails the operation (`EXECUTION_FAILED`); files the preview itself adds (lockfile, caches) do not count.                                                                                                                                                                                                     |
 
 `scope` states what the usage excludes: auxiliary model calls outside the build
@@ -47,8 +48,14 @@ the file to the service account (`icacls <file> /inheritance:r /grant:r
   `FACTORY_DYAD_PREVIEW_PORTS` (default `49152-49300`): the preview gateway.
   Dyad starts each preview behind a proxy that listens on loopback only; the
   gateway listens on the private address in that port range, accepts only the
-  listed peers and forwards bytes to the loopback proxy. `previewRef` is
-  rewritten to the gateway URL.
+  listed peers and forwards HTTP and WebSocket traffic to the loopback proxy.
+  Dyad's proxy answers 421 to any request whose `Host` (or browser `Origin`) is
+  not its own `localhost:<port>`, so the gateway rewrites `Host`, and an
+  `Origin` or `Referer` that names the gateway, on the way in, and a redirect
+  `Location` back on the way out; it serves only requests whose `Host` is the
+  gateway's own address (no DNS rebinding). `previewRef` is rewritten to the
+  gateway URL. `preview_gateway_dyad_proxy.test.ts` runs the gateway in front of
+  Dyad's real proxy worker.
 - Firewall (`scripts/factory-provider/configure-firewall.ps1`): one inbound
   rule per Core host, naming the API port and the preview range. Laboratory:
   the Core on the operator's machine (`10.77.0.4`). Production: the Core on the

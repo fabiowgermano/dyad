@@ -12,7 +12,7 @@ import {
 } from "./source_reachability";
 import { FactoryModelRegistry } from "./model_registry";
 import { FactoryUsageCollector } from "./usage_collector";
-import type { FactoryPrototypeUsage } from "./protocol";
+import type { FactoryPrototypeBuild, FactoryPrototypeUsage } from "./protocol";
 
 /**
  * A failed execution that keeps what the provider spent before it failed, so
@@ -23,6 +23,7 @@ export class FactoryExecutionError extends Error {
     message: string,
     readonly detail: {
       usage?: FactoryPrototypeUsage;
+      build?: FactoryPrototypeBuild;
       resolvedModel?: { provider: string; name: string };
     },
   ) {
@@ -64,6 +65,8 @@ export interface DyadExecutionFacade {
   verifyBuild(input: { appPath: string }): Promise<{
     ok: boolean;
     error?: string;
+    /** The install and build command that ran, for the operation record. */
+    command?: string;
   }>;
 
   startPreview(input: { appId: number; operationId: string }): Promise<string>;
@@ -118,12 +121,20 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       provider: selection.provider,
       name: selection.name,
     };
+    const evidence: { build?: FactoryPrototypeBuild } = {};
     try {
-      return await this.run(request, identity, selection, usage, resolvedModel);
+      return await this.run(
+        request,
+        identity,
+        selection,
+        usage,
+        resolvedModel,
+        evidence,
+      );
     } catch (error) {
       throw new FactoryExecutionError(
         error instanceof Error ? error.message : String(error),
-        { usage: usage.snapshot(), resolvedModel },
+        { usage: usage.snapshot(), resolvedModel, build: evidence.build },
       );
     }
   }
@@ -134,6 +145,7 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     selection: ReturnType<FactoryModelRegistry["resolve"]>,
     usage: FactoryUsageCollector,
     resolvedModel: { provider: string; name: string },
+    evidence: { build?: FactoryPrototypeBuild },
   ): Promise<
     Omit<
       FactoryPrototypeOperation,
@@ -218,13 +230,20 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       const verification = await this.facade.verifyBuild({
         appPath: created.resolvedPath,
       });
+      const command = verification.command ?? "build verification";
       if (verification.ok) {
+        evidence.build = { ok: true, command };
         functionalBuildVerified = true;
         break;
       }
 
       lastVerificationError =
         verification.error ?? "build verification failed without details";
+      evidence.build = {
+        ok: false,
+        command,
+        error: lastVerificationError.slice(0, 2_000),
+      };
     }
 
     // Freeze source evidence immediately after the Dyad build. Verification
@@ -289,6 +308,8 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
         : {}),
       providerRequestId,
       usage: usage.snapshot(),
+      // A functional prototype only completes after a passing build.
+      ...(evidence.build ? { build: evidence.build } : {}),
       model: request.model,
       resolvedModel,
     };
