@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attachFactoryUsageCollector,
+  factoryLimitReached,
   FactoryUsageCollector,
   providerReportedCostMicros,
   reportFactoryModelUsage,
@@ -85,5 +86,68 @@ describe("reportFactoryModelUsage", () => {
     detach();
     reportFactoryModelUsage(7, { totalTokens: 100 });
     expect(c.snapshot()).toMatchObject({ totalTokens: 9 });
+  });
+});
+
+describe("Factory limits (contract v0.4)", () => {
+  const step = (total: number, cost?: number) => ({
+    usage: { inputTokens: total - 10, outputTokens: 10, totalTokens: total },
+    providerMetadata:
+      cost === undefined ? undefined : { openrouter: { usage: { cost } } },
+  });
+
+  it("does nothing without limits", () => {
+    const c = new FactoryUsageCollector();
+    c.beginTurn();
+    expect(c.observeSteps([step(1_000_000_000)])).toBeUndefined();
+  });
+
+  it("stops at the token ceiling counting finished runs and the run in flight", () => {
+    const c = new FactoryUsageCollector({ maxTotalTokens: 1000 });
+    c.beginTurn();
+    expect(c.observeSteps([step(400)])).toBeUndefined();
+    // the same list again never double counts
+    expect(c.observeSteps([step(400)])).toBeUndefined();
+    expect(c.observeSteps([step(400), step(500)])).toBeUndefined();
+    expect(c.observeSteps([step(400), step(600)])).toMatchObject({
+      limit: "maxTotalTokens",
+      ceiling: 1000,
+      seen: 1000,
+    });
+    c.add({ totalTokens: 1000, inputTokens: 990, outputTokens: 10 });
+    c.beginTurn();
+    // the finished run counts: one more token step of the next run reaches it
+    expect(c.limitHit()).toMatchObject({ limit: "maxTotalTokens" });
+  });
+
+  it("bounds the cost by the higher of the provider charge and the price table", () => {
+    const prices = {
+      inputMicrosPerMtok: 100_000,
+      outputMicrosPerMtok: 500_000,
+    };
+    const c = new FactoryUsageCollector({ maxCostMicros: 1000, prices });
+    c.beginTurn();
+    // 4000 in * 0.1 + 10 out * 0.5 = 405 micros by the table: below 1000
+    expect(c.observeSteps([step(4010)])).toBeUndefined();
+    // the provider charged more than the table says: its figure wins
+    expect(c.observeSteps([step(4010, 0.001)])).toMatchObject({
+      limit: "maxCostMicros",
+      seen: 1000,
+    });
+    // by the table alone: 9990 in * 0.1 + 10 * 0.5 = 1004.
+    expect(c.observeSteps([step(10_000)])).toMatchObject({
+      limit: "maxCostMicros",
+      seen: 1004,
+    });
+  });
+
+  it("reaches only the attached chat and is false outside a Factory chat", () => {
+    const c = new FactoryUsageCollector({ maxTotalTokens: 10 });
+    const detach = attachFactoryUsageCollector(5, c);
+    c.beginTurn();
+    expect(factoryLimitReached(5, [step(50)])).toBe(true);
+    expect(factoryLimitReached(6, [step(50)])).toBe(false);
+    detach();
+    expect(factoryLimitReached(5, [step(50)])).toBe(false);
   });
 });

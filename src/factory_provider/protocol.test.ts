@@ -40,3 +40,51 @@ describe("Factory provider protocol", () => {
     ).toThrow();
   });
 });
+
+describe("Factory provider limits (contract v0.4)", () => {
+  const base = {
+    idempotencyKey: "idem-1234567890123456",
+    inputSha256: "a".repeat(64),
+    requirement: "functional" as const,
+    brief: "Build",
+    references: [],
+    model: {
+      provider: "openrouter",
+      modelId: "m",
+      configSha256: "b".repeat(64),
+    },
+  };
+  const prices = { inputMicrosPerMtok: 100_000, outputMicrosPerMtok: 500_000 };
+
+  it("accepts a token ceiling alone and a cost ceiling with prices", () => {
+    expect(() =>
+      FactoryCreatePrototypeRequestSchema.parse({
+        ...base,
+        limits: { maxTotalTokens: 1000 },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      FactoryCreatePrototypeRequestSchema.parse({
+        ...base,
+        limits: {
+          maxCostMicros: 500_000,
+          prices: { ...prices, cacheReadMicrosPerMtok: 10_000 },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a cost ceiling it cannot measure, an empty limits and non-positive ceilings", () => {
+    for (const limits of [
+      { maxCostMicros: 500_000 },
+      {},
+      { maxTotalTokens: 0 },
+      { maxTotalTokens: 1.5 },
+      { prices },
+    ]) {
+      expect(() =>
+        FactoryCreatePrototypeRequestSchema.parse({ ...base, limits }),
+      ).toThrow();
+    }
+  });
+});

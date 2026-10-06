@@ -1,4 +1,4 @@
-import type { FactoryPrototypeUsage } from "./protocol";
+import type { FactoryPrototypeLimits, FactoryPrototypeUsage } from "./protocol";
 
 /**
  * Model usage of a headless Factory build, as the model provider reported it.
@@ -61,7 +61,28 @@ export function providerReportedCostMicros(
     : undefined;
 }
 
+/** What stopped a build: the ceiling that was reached and the value seen. */
+export interface FactoryLimitHit {
+  limit: "maxTotalTokens" | "maxCostMicros";
+  ceiling: number;
+  seen: number;
+}
+
+/** One finished model step as the AI SDK reports it. */
+export interface ReportedStep {
+  usage?: ReportedUsage;
+  providerMetadata?: unknown;
+}
+
 export class FactoryUsageCollector {
+  constructor(private readonly limits?: FactoryPrototypeLimits) {}
+
+  // Steps of the model run in flight: not yet folded into the sums.
+  private stepTokens = 0;
+  private stepCost = 0;
+  private stepInput = 0;
+  private stepOutput = 0;
+  private stepCached = 0;
   private turns = 0;
   private reports = 0;
   private readonly sums = new Map<Dimension, number>();
@@ -70,11 +91,74 @@ export class FactoryUsageCollector {
   /** A model run is about to start (one build turn). */
   beginTurn(): void {
     this.turns += 1;
+    this.resetSteps();
+  }
+
+  private resetSteps(): void {
+    this.stepTokens = this.stepCost = 0;
+    this.stepInput = this.stepOutput = this.stepCached = 0;
+  }
+
+  /**
+   * The steps finished so far in the run in flight. Recomputed from the whole
+   * list each time, so calling it twice for the same steps never double counts.
+   * Returns the ceiling reached, if any.
+   */
+  observeSteps(steps: ReportedStep[]): FactoryLimitHit | undefined {
+    this.resetSteps();
+    for (const step of steps) {
+      const u = step.usage;
+      const input = nonNegativeInt(u?.inputTokens) ?? 0;
+      const output = nonNegativeInt(u?.outputTokens) ?? 0;
+      this.stepInput += input;
+      this.stepOutput += output;
+      this.stepCached += nonNegativeInt(u?.cachedInputTokens) ?? 0;
+      this.stepTokens += nonNegativeInt(u?.totalTokens) ?? input + output;
+      this.stepCost += providerReportedCostMicros(step.providerMetadata) ?? 0;
+    }
+    return this.limitHit();
+  }
+
+  /** The ceiling reached by the finished runs plus the run in flight. */
+  limitHit(): FactoryLimitHit | undefined {
+    const l = this.limits;
+    if (!l) return undefined;
+    const tokens = (this.sums.get("totalTokens") ?? 0) + this.stepTokens;
+    if (l.maxTotalTokens !== undefined && tokens >= l.maxTotalTokens) {
+      return {
+        limit: "maxTotalTokens",
+        ceiling: l.maxTotalTokens,
+        seen: tokens,
+      };
+    }
+    if (l.maxCostMicros !== undefined && l.prices) {
+      const p = l.prices;
+      const input = (this.sums.get("inputTokens") ?? 0) + this.stepInput;
+      const output = (this.sums.get("outputTokens") ?? 0) + this.stepOutput;
+      const cached = Math.min(
+        input,
+        (this.sums.get("cacheReadTokens") ?? 0) + this.stepCached,
+      );
+      // Worst case: a provider charge, or the price table, whichever is higher.
+      const computed = Math.ceil(
+        ((input - cached) * p.inputMicrosPerMtok +
+          cached * (p.cacheReadMicrosPerMtok ?? p.inputMicrosPerMtok) +
+          output * p.outputMicrosPerMtok) /
+          1_000_000,
+      );
+      const reported = (this.sums.get("costMicros") ?? 0) + this.stepCost;
+      const cost = Math.max(computed, reported);
+      if (cost >= l.maxCostMicros) {
+        return { limit: "maxCostMicros", ceiling: l.maxCostMicros, seen: cost };
+      }
+    }
+    return undefined;
   }
 
   /** A model run finished and the provider reported its total usage. */
   add(usage: ReportedUsage | undefined, providerMetadata?: unknown): void {
     this.reports += 1;
+    this.resetSteps();
     const values: Record<Dimension, number | undefined> = {
       inputTokens: nonNegativeInt(usage?.inputTokens),
       outputTokens: nonNegativeInt(usage?.outputTokens),
@@ -145,4 +229,16 @@ export function reportFactoryModelUsage(
   providerMetadata?: unknown,
 ): void {
   attached.get(chatId)?.add(usage, providerMetadata);
+}
+
+/**
+ * Called from the agent's stop condition with the steps finished so far.
+ * True means a Factory limit was reached and the run must stop. A no-op
+ * (false) outside a Factory chat or without limits.
+ */
+export function factoryLimitReached(
+  chatId: number,
+  steps: ReportedStep[],
+): boolean {
+  return attached.get(chatId)?.observeSteps(steps) !== undefined;
 }

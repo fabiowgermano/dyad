@@ -191,7 +191,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
       this.store.update({
         ...running,
         state: "failed",
-        errorCode: "EXECUTION_FAILED",
+        errorCode: detail?.errorCode ?? "EXECUTION_FAILED",
         errorMessage: safeErrorMessage(error),
         ...(detail?.usage ? { usage: detail.usage } : {}),
         ...(detail?.build ? { build: detail.build } : {}),
