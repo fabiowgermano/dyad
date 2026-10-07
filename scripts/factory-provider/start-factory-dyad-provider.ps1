@@ -7,8 +7,11 @@
   environment variable or from this script). The service refuses to start when
   FACTORY_DYAD_TOKEN is set.
 
-  The build provenance (version, commit) is taken from the checkout this script
-  runs in, so /healthz always says what was really built.
+  The build provenance (version, commit) is baked into the dist by
+  scripts\build-factory-provider.mjs (dist\factory-dyad-provider\build-info.json)
+  and /healthz reports it. This script refuses to start when that build info is
+  missing, was built from a dirty tree, does not match service.cjs, or names a
+  commit other than the checkout's HEAD (git pull without a rebuild).
 
 .EXAMPLE
   .\scripts\factory-provider\start-factory-dyad-provider.ps1 `
@@ -36,7 +39,17 @@ $status = git status --porcelain
 if ($status) { throw "The checkout is not clean; refusing to start a service whose build commit would not describe it." }
 $commit = (git rev-parse HEAD).Trim()
 $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-if (-not (Test-Path dist\factory-dyad-provider\service.cjs)) { throw "Build first: node scripts\build-factory-provider.mjs" }
+$rebuild = 'run node scripts\build-factory-provider.mjs'
+$service = 'dist\factory-dyad-provider\service.cjs'
+$buildInfoFile = 'dist\factory-dyad-provider\build-info.json'
+if (-not (Test-Path $service)) { throw "Build first: node scripts\build-factory-provider.mjs" }
+if (-not (Test-Path $buildInfoFile)) { throw "$buildInfoFile is missing (build predates build provenance): $rebuild" }
+$buildInfo = Get-Content $buildInfoFile -Raw | ConvertFrom-Json
+if ($buildInfo.dirty -ne $false) { throw "dist was built from a dirty checkout: $rebuild from a clean checkout" }
+if ($buildInfo.commit -ne $commit) { throw "dist was built from $($buildInfo.commit), checkout is ${commit}: $rebuild" }
+if ($buildInfo.version -ne $version) { throw "dist was built as version $($buildInfo.version), checkout is ${version}: $rebuild" }
+$serviceSha = (Get-FileHash -Algorithm SHA256 $service).Hash.ToLowerInvariant()
+if ($serviceSha -ne $buildInfo.serviceSha256) { throw "$service sha256 $serviceSha does not match build-info $($buildInfo.serviceSha256): $rebuild" }
 
 Remove-Item Env:FACTORY_DYAD_TOKEN -ErrorAction SilentlyContinue
 $env:FACTORY_DYAD_TOKEN_FILE = $TokenFile
@@ -44,6 +57,8 @@ $env:FACTORY_DYAD_MODEL_REGISTRY_FILE = $ModelRegistry
 $env:FACTORY_DYAD_BIND = $BindHost
 $env:FACTORY_DYAD_PORT = "$Port"
 $env:FACTORY_DYAD_DATA_DIR = $DataDir
+# The service reports the baked build info; these only let it re-check the
+# checkout against the dist and refuse on mismatch.
 $env:FACTORY_DYAD_BUILD_VERSION = $version
 $env:FACTORY_DYAD_BUILD_COMMIT = $commit
 if ($PreviewAllowedPeers.Count -gt 0) {
