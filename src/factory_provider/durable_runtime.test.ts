@@ -94,6 +94,32 @@ describe("DurableFactoryPrototypeRuntime", () => {
     expect(completed?.sourceSha256).toBe("c".repeat(64));
   });
 
+  it("echoes admitted v0.4 limits through running and failed operations", async () => {
+    const store = await makeStore();
+    const executor: PrototypeExecutor = {
+      async execute() {
+        throw new FactoryExecutionError("build failed", {
+          usage: { totalTokens: 77, modelRuns: 1 },
+        });
+      },
+    };
+    const runtime = new DurableFactoryPrototypeRuntime({
+      store,
+      executor,
+      operationId: () => "op-limits",
+    });
+    const req = request({ limits: { maxTotalTokens: 1000 } });
+
+    const admitted = await runtime.createPrototype(req);
+    expect(admitted.limits).toEqual(req.limits);
+
+    const failed = await eventually(
+      () => runtime.getOperation("op-limits"),
+      (value) => value?.state === "failed",
+    );
+    expect(failed?.limits).toEqual(req.limits);
+  });
+
   it("does not replay an interrupted operation after service restart", async () => {
     const store = await makeStore();
     store.create(
