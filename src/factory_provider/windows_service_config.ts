@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { readServiceTokens } from "./service_tokens";
 import { parsePortRange } from "./preview_gateway";
+import { readFactoryBuildInfo } from "./build_info";
 
 export interface FactoryWindowsServiceConfig {
   bindHost: string;
@@ -22,12 +23,15 @@ export interface FactoryWindowsServiceConfig {
   operationsDatabasePath: string;
   workspaceRoot: string;
   modelRegistryFile: string;
+  /** From the build info baked into the dist, never from the environment. */
   buildVersion: string;
   buildCommit: string;
 }
 
 export function loadFactoryWindowsServiceConfig(
   env: NodeJS.ProcessEnv = process.env,
+  /** Directory holding service.cjs and build-info.json (the bundle's own directory). */
+  distDir: string = __dirname,
 ): FactoryWindowsServiceConfig {
   if (env.FACTORY_DYAD_TOKEN?.trim()) {
     // A token in the environment ends up in start scripts and process
@@ -80,15 +84,30 @@ export function loadFactoryWindowsServiceConfig(
         "FACTORY_DYAD_MODEL_REGISTRY_FILE",
       ),
     ),
-    buildVersion: required(
-      env.FACTORY_DYAD_BUILD_VERSION,
-      "FACTORY_DYAD_BUILD_VERSION",
-    ),
-    buildCommit: required(
-      env.FACTORY_DYAD_BUILD_COMMIT,
-      "FACTORY_DYAD_BUILD_COMMIT",
-    ),
+    ...bakedBuild(env, distDir),
   };
+}
+
+function bakedBuild(
+  env: NodeJS.ProcessEnv,
+  distDir: string,
+): Pick<FactoryWindowsServiceConfig, "buildVersion" | "buildCommit"> {
+  const info = readFactoryBuildInfo(distDir);
+  // The start script still passes what the checkout says; a disagreement means
+  // the checkout moved without a rebuild, so /healthz would lie.
+  const claims: [string, string][] = [
+    ["FACTORY_DYAD_BUILD_COMMIT", info.commit],
+    ["FACTORY_DYAD_BUILD_VERSION", info.version],
+  ];
+  for (const [name, baked] of claims) {
+    const claimed = env[name]?.trim();
+    if (claimed && claimed !== baked) {
+      throw new Error(
+        `${name}=${claimed} but the dist was built from ${baked}: run node scripts\\build-factory-provider.mjs`,
+      );
+    }
+  }
+  return { buildVersion: info.version, buildCommit: info.commit };
 }
 
 function required(value: string | undefined, name: string): string {

@@ -87,8 +87,31 @@ must match too. Example (shas are placeholders):
 
 ## Provenance
 
-`GET /healthz` returns `dyadVersion` and `dyadCommit` from
-`FACTORY_DYAD_BUILD_VERSION` / `FACTORY_DYAD_BUILD_COMMIT`.
-`scripts/factory-provider/start-factory-dyad-provider.ps1` fills them from the
-checkout it runs in and refuses to start from a dirty working tree, so the
-commit always describes what was built.
+`GET /healthz` returns `dyadVersion` and `dyadCommit` from the build info baked
+into the dist, so they attest the build that runs, not the checkout.
+
+- `node scripts/build-factory-provider.mjs` writes
+  `dist/factory-dyad-provider/build-info.json`: `commit` (git `HEAD`),
+  `version` (`package.json`), `dirty` (uncommitted changes at build time),
+  `builtAt` and `serviceSha256` (of `service.cjs`).
+- The service refuses to start when `build-info.json` is missing or
+  incomplete, `dirty` is not `false`, `service.cjs` does not match
+  `serviceSha256`, or `FACTORY_DYAD_BUILD_COMMIT` / `FACTORY_DYAD_BUILD_VERSION`
+  are set and differ from the baked values.
+- `scripts/factory-provider/start-factory-dyad-provider.ps1` refuses a dirty
+  working tree, and refuses to start when the dist was not built from the
+  checkout's `HEAD` ("dist was built from X, checkout is Y: run node
+  scripts\build-factory-provider.mjs") or `service.cjs` does not match
+  `serviceSha256`.
+
+Update procedure on the Windows host (repository root):
+
+```powershell
+git pull --ff-only
+npm ci                                   # only when package-lock.json changed
+node scripts\build-factory-provider.mjs  # always after a pull
+.\scripts\factory-provider\start-factory-dyad-provider.ps1 -ModelRegistry <models.json> ...
+```
+
+Confirm `dyadCommit` in `GET /healthz` equals `git rev-parse HEAD` and
+`commit` in `dist\factory-dyad-provider\build-info.json`.
