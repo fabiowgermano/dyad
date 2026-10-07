@@ -81,6 +81,7 @@ export class DurableFactoryPrototypeRuntime implements FactoryPrototypeRuntime {
       idempotencyKey: request.idempotencyKey,
       state: "accepted",
       model: request.model,
+      ...(request.limits ? { limits: request.limits } : {}),
     };
 
     try {
