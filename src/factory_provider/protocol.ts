@@ -16,6 +16,41 @@ export const FactoryPrototypeReferenceSchema = z.object({
   content: z.string(),
 });
 
+/**
+ * Price of the model in micro-USD per million tokens. The service uses it only
+ * to bound the cost when the model provider does not report the charge per
+ * step; the Core owns the real price and cost.
+ */
+export const FactoryPrototypePricesSchema = z.object({
+  inputMicrosPerMtok: z.number().int().nonnegative(),
+  outputMicrosPerMtok: z.number().int().nonnegative(),
+  cacheReadMicrosPerMtok: z.number().int().nonnegative().optional(),
+});
+
+/**
+ * Contract v0.4: a ceiling the service enforces while it builds. The build
+ * stops after the model step that reaches a ceiling and the operation fails
+ * with LIMIT_REACHED and the usage so far. A cost ceiling needs prices, so the
+ * service never accepts a cost limit it cannot measure.
+ */
+export const FactoryPrototypeLimitsSchema = z
+  .object({
+    maxTotalTokens: z.number().int().positive().optional(),
+    maxCostMicros: z.number().int().positive().optional(),
+    prices: FactoryPrototypePricesSchema.optional(),
+  })
+  .refine(
+    (l) => l.maxTotalTokens !== undefined || l.maxCostMicros !== undefined,
+    { message: "limits needs maxTotalTokens or maxCostMicros" },
+  )
+  .refine((l) => l.maxCostMicros === undefined || l.prices !== undefined, {
+    message: "maxCostMicros needs prices",
+  });
+
+export type FactoryPrototypeLimits = z.infer<
+  typeof FactoryPrototypeLimitsSchema
+>;
+
 export const FactoryCreatePrototypeRequestSchema = z.object({
   idempotencyKey: z.string().min(16).max(512),
   inputSha256: z.string().regex(/^[a-f0-9]{64}$/i),
@@ -23,6 +58,7 @@ export const FactoryCreatePrototypeRequestSchema = z.object({
   brief: z.string().min(1).max(1_000_000),
   references: z.array(FactoryPrototypeReferenceSchema).max(256).default([]),
   model: FactoryPrototypeModelSchema,
+  limits: FactoryPrototypeLimitsSchema.optional(),
 });
 
 export type FactoryCreatePrototypeRequest = z.infer<
@@ -108,6 +144,8 @@ export const FactoryPrototypeOperationSchema = z.object({
   /** The Factory model identity the operation ran with (echo of the request). */
   model: FactoryPrototypeModelSchema.optional(),
   resolvedModel: FactoryResolvedModelSchema.optional(),
+  /** The limits the operation ran under (echo of the request). */
+  limits: FactoryPrototypeLimitsSchema.optional(),
   /** True only on a response that returned an operation already admitted. */
   replayed: z.boolean().optional(),
   errorCode: z.string().min(1).optional(),

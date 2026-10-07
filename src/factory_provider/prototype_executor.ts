@@ -11,7 +11,7 @@ import {
   isFunctionalCodePath,
 } from "./source_reachability";
 import { FactoryModelRegistry } from "./model_registry";
-import { FactoryUsageCollector } from "./usage_collector";
+import { FactoryUsageCollector, type FactoryLimitHit } from "./usage_collector";
 import type { FactoryPrototypeBuild, FactoryPrototypeUsage } from "./protocol";
 
 /**
@@ -22,6 +22,7 @@ export class FactoryExecutionError extends Error {
   constructor(
     message: string,
     readonly detail: {
+      errorCode?: string;
       usage?: FactoryPrototypeUsage;
       build?: FactoryPrototypeBuild;
       resolvedModel?: { provider: string; name: string };
@@ -29,6 +30,16 @@ export class FactoryExecutionError extends Error {
   ) {
     super(message);
     this.name = "FactoryExecutionError";
+  }
+}
+
+/** A contract v0.4 ceiling was reached; the build stopped. */
+export class FactoryLimitReachedError extends Error {
+  constructor(readonly hit: FactoryLimitHit) {
+    super(
+      `LIMIT_REACHED: ${hit.limit} ${hit.ceiling} reached (seen ${hit.seen}); the build was stopped`,
+    );
+    this.name = "FactoryLimitReachedError";
   }
 }
 
@@ -116,7 +127,7 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
         "Factory Dyad v1 does not admit the claude-code execution backend",
       );
     }
-    const usage = new FactoryUsageCollector();
+    const usage = new FactoryUsageCollector(request.limits);
     const resolvedModel = {
       provider: selection.provider,
       name: selection.name,
@@ -134,7 +145,14 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
     } catch (error) {
       throw new FactoryExecutionError(
         error instanceof Error ? error.message : String(error),
-        { usage: usage.snapshot(), resolvedModel, build: evidence.build },
+        {
+          usage: usage.snapshot(),
+          resolvedModel,
+          build: evidence.build,
+          ...(error instanceof FactoryLimitReachedError
+            ? { errorCode: "LIMIT_REACHED" }
+            : {}),
+        },
       );
     }
   }
@@ -194,6 +212,8 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
               ),
       });
       providerRequestId = build.providerRequestId ?? providerRequestId;
+      const hit = usage.limitHit();
+      if (hit) throw new FactoryLimitReachedError(hit);
       buildManifest = await buildSourceManifest(created.resolvedPath);
 
       const turnChanged =
@@ -312,6 +332,7 @@ export class DyadPrototypeExecutor implements PrototypeExecutor {
       ...(evidence.build ? { build: evidence.build } : {}),
       model: request.model,
       resolvedModel,
+      ...(request.limits ? { limits: request.limits } : {}),
     };
   }
 }

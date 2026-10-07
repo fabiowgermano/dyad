@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   DyadPrototypeExecutor,
   FactoryExecutionError,
+  FactoryLimitReachedError,
   type DyadExecutionFacade,
 } from "./prototype_executor";
 import { FactoryModelRegistry } from "./model_registry";
@@ -470,11 +471,11 @@ describe("DyadPrototypeExecutor", () => {
       createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
       bindModel: async () => undefined,
       runBuild: async (input) => {
-        input.usage.beginTurn();
         await fs.writeFile(
           path.join(root, "src", "App.tsx"),
           "export default () => <main>changed</main>;\n",
         );
+        input.usage.beginTurn();
         input.usage.add({
           inputTokens: 120,
           outputTokens: 30,
@@ -633,5 +634,49 @@ describe("DyadPrototypeExecutor", () => {
         operationId: "op-drift",
       }),
     ).rejects.toThrow("does not match the recorded source");
+  });
+
+  it("stops after the build turn that reaches a ceiling and keeps the usage", async () => {
+    const root = await appRoot();
+    const verify = vi.fn(async () => ({ ok: true }));
+    const facade: DyadExecutionFacade = {
+      createApp: async () => ({ appId: 42, chatId: 7, resolvedPath: root }),
+      bindModel: async () => undefined,
+      runBuild: vi.fn(async (input) => {
+        input.usage.beginTurn();
+        input.usage.add({
+          inputTokens: 900,
+          outputTokens: 200,
+          totalTokens: 1100,
+        });
+        await fs.writeFile(
+          path.join(root, "src", "App.tsx"),
+          "export default () => <main>changed</main>;\n",
+        );
+        return { updatedFiles: true };
+      }),
+      verifyBuild: verify,
+      startPreview: async () => "http://127.0.0.1:41342",
+    };
+    const executor = new DyadPrototypeExecutor(facade, registry());
+    const err = await executor
+      .execute(
+        { ...request(), limits: { maxTotalTokens: 1000 } },
+        { operationId: "op-limit" },
+      )
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FactoryExecutionError);
+    const detail = (err as FactoryExecutionError).detail;
+    expect(detail.errorCode).toBe("LIMIT_REACHED");
+    expect(detail.usage).toMatchObject({ totalTokens: 1100 });
+    expect((err as Error).message).toContain("maxTotalTokens");
+    expect(verify).not.toHaveBeenCalled();
+    expect(
+      new FactoryLimitReachedError({
+        limit: "maxTotalTokens",
+        ceiling: 1,
+        seen: 2,
+      }).message,
+    ).toContain("LIMIT_REACHED");
   });
 });

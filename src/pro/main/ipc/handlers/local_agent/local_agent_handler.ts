@@ -1,5 +1,8 @@
 import { recordShellReviewOutcome } from "./shell_review_history";
-import { reportFactoryModelUsage } from "@/factory_provider/usage_collector";
+import {
+  factoryLimitReached,
+  reportFactoryModelUsage,
+} from "@/factory_provider/usage_collector";
 import { shellExecutionGuidance } from "@/shared/shell_capability";
 import { SubscriptionBillingError } from "@/shared/subscription_billing_error";
 import {
@@ -392,11 +395,9 @@ export function buildChatMessageHistory(
   const retainedMessageIds = new Set(relevantMessages.map(({ id }) => id));
   const firstRetainedUserId = relevantMessages
     .filter(({ role }) => role === "user")
-    .reduce<number | null>(
-      (lowestId, { id }) =>
-        lowestId === null || id < lowestId ? id : lowestId,
-      null,
-    );
+    .reduce<
+      number | null
+    >((lowestId, { id }) => (lowestId === null || id < lowestId ? id : lowestId), null);
   const precedingAssistant =
     firstRetainedUserId === null
       ? undefined
@@ -1468,6 +1469,9 @@ export async function handleLocalAgentStream(
               : undefined,
             toolChoice: factoryHeadlessBuild ? "required" : "auto",
             stopWhen: [
+              // Factory contract v0.4 ceiling (tokens or cost): false outside
+              // a Factory operation or without limits.
+              ({ steps }) => factoryLimitReached(req.chatId, steps),
               stepCountIs(
                 factoryHeadlessBuild
                   ? Math.min(maxToolCallSteps, 12)
