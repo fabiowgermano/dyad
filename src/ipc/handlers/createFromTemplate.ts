@@ -1,12 +1,12 @@
 import path from "path";
 import fs from "fs-extra";
-import { app } from "electron";
 import { copyDirectoryRecursive } from "../utils/file_utils";
 import { gitClone, getCurrentCommitHash } from "../utils/git_utils";
 import { readSettings } from "@/main/settings";
 import { getTemplateOrThrow } from "../utils/template_utils";
 import log from "electron-log";
 import { DyadError, DyadErrorKind } from "@/errors/dyad_error";
+import { getUserDataPath } from "@/paths/paths";
 
 const logger = log.scope("createFromTemplate");
 
@@ -77,7 +77,7 @@ async function cloneRepo(repoUrl: string): Promise<string> {
   logger.info(`Parsed org: ${orgName}, repo: ${repoName} from ${repoUrl}`);
 
   const cachePath = path.join(
-    app.getPath("userData"),
+    getUserDataPath(),
     "templates",
     orgName,
     repoName,

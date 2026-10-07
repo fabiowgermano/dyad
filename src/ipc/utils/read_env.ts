@@ -7,7 +7,13 @@ import { shellEnvSync } from "shell-env";
 let _env: Record<string, string> | null = null;
 
 export function getEnvVar(key: string) {
-  // Cache it
+  // A Windows service has no interactive login shell to recover. Its explicit
+  // service environment is the authority and must not be replaced by shell-env.
+  if (process.env.DYAD_HEADLESS_SERVICE === "1") {
+    return process.env[key];
+  }
+
+  // Cache the interactive desktop shell environment.
   if (!_env) {
     _env = shellEnvSync();
   }

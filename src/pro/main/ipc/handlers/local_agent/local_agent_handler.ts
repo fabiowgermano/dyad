@@ -1,4 +1,8 @@
 import { recordShellReviewOutcome } from "./shell_review_history";
+import {
+  factoryLimitReached,
+  reportFactoryModelUsage,
+} from "@/factory_provider/usage_collector";
 import { shellExecutionGuidance } from "@/shared/shell_capability";
 import { SubscriptionBillingError } from "@/shared/subscription_billing_error";
 import {
@@ -12,7 +16,6 @@ import type { AutoModelCandidates } from "@/ipc/services/auto_model_candidates";
  * Main orchestrator for tool-based agent mode with parallel execution
  */
 
-import { IpcMainInvokeEvent } from "electron";
 import {
   streamText,
   asSchema,
@@ -29,6 +32,8 @@ import { chats, messages, type AiMessagesJsonV6 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ClaudeCodeModel } from "@/ipc/services/claude_code/model";
 import { startTurnStallWatchdog } from "./turn_stall_watchdog";
+import { getFactoryHeadlessStepOverride } from "./factory_headless_step_policy";
+import { repairFactoryHeadlessToolCall } from "./factory_headless_tool_repair";
 import { requireMcpToolConsent } from "@/ipc/utils/mcp_consent";
 import { buildMcpAutoApprove } from "./mcp_auto_consent";
 import { scheduleChatSearchIndexing } from "./chat_search_indexer";
@@ -54,7 +59,7 @@ import {
   messagesContainPdf,
   PDF_INPUT_UNSUPPORTED_MESSAGE,
 } from "@/ipc/utils/chat_attachment_utils";
-import { safeSend } from "@/ipc/utils/safe_sender";
+import { safeSend, type SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import { sendChatChunk } from "@/ipc/utils/high_volume_delivery";
 import { broadcastToRegisteredWindows } from "@/ipc/utils/window_broadcast";
 import { publishQueryInvalidations } from "@/ipc/utils/query_invalidation_delivery";
@@ -390,11 +395,9 @@ export function buildChatMessageHistory(
   const retainedMessageIds = new Set(relevantMessages.map(({ id }) => id));
   const firstRetainedUserId = relevantMessages
     .filter(({ role }) => role === "user")
-    .reduce<number | null>(
-      (lowestId, { id }) =>
-        lowestId === null || id < lowestId ? id : lowestId,
-      null,
-    );
+    .reduce<
+      number | null
+    >((lowestId, { id }) => (lowestId === null || id < lowestId ? id : lowestId), null);
   const precedingAssistant =
     firstRetainedUserId === null
       ? undefined
@@ -589,7 +592,7 @@ export function buildImplementerOutcomeNotices(
 }
 
 export async function handleLocalAgentStream(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   req: ChatStreamParams,
   abortController: AbortController,
   {
@@ -1134,10 +1137,16 @@ export async function handleLocalAgentStream(
 
     // Read-only mode includes only read-only tools (MCP tools are skipped since
     // we can't tell if they modify state); plan mode includes only planning tools.
+    const factoryHeadlessBuild =
+      buildMode && process.env.DYAD_HEADLESS_SERVICE === "1";
+    const factoryHeadlessRepair =
+      factoryHeadlessBuild &&
+      req.prompt.trimStart().startsWith("# Factory headless build correction");
     const buildOptions = {
       toolProfile,
       readOnly,
       planModeOnly,
+      factoryHeadlessBuild,
       basicAgentMode: !readOnly && !planModeOnly && isBasicAgentMode(settings),
       freeModelMode: effectiveFreeModelMode,
       enableAppBlueprint:
@@ -1451,8 +1460,23 @@ export async function handleLocalAgentStream(
             system: systemPrompt,
             messages: sanitizedAttemptMessages,
             tools: allTools,
+            experimental_repairToolCall: factoryHeadlessBuild
+              ? async ({ toolCall, messages: repairMessages }) =>
+                  repairFactoryHeadlessToolCall({
+                    toolCall,
+                    messages: repairMessages,
+                  })
+              : undefined,
+            toolChoice: factoryHeadlessBuild ? "required" : "auto",
             stopWhen: [
-              stepCountIs(maxToolCallSteps),
+              // Factory contract v0.4 ceiling (tokens or cost): false outside
+              // a Factory operation or without limits.
+              ({ steps }) => factoryLimitReached(req.chatId, steps),
+              stepCountIs(
+                factoryHeadlessBuild
+                  ? Math.min(maxToolCallSteps, 12)
+                  : maxToolCallSteps,
+              ),
               // Stop after the integration tool so the next stream is started
               // with a freshly built system prompt that includes the new
               // Supabase/Neon context. The frontend auto-triggers a hidden
@@ -1623,6 +1647,20 @@ export async function handleLocalAgentStream(
                 };
               }
 
+              const headlessStepOverride = factoryHeadlessBuild
+                ? getFactoryHeadlessStepOverride({
+                    stepNumber: options.stepNumber,
+                    workspaceMutated: ctx.workspaceMutated === true,
+                    repairTurn: factoryHeadlessRepair,
+                  })
+                : undefined;
+              if (headlessStepOverride) {
+                result = {
+                  ...(result ?? stepOptions),
+                  ...headlessStepOverride,
+                };
+              }
+
               return result;
             },
             onStepFinish: async (step) => {
@@ -1701,6 +1739,13 @@ export async function handleLocalAgentStream(
               }
             },
             onFinish: async (response) => {
+              // Factory headless operations meter the whole agent run (every
+              // step), not just the last one; a no-op outside a Factory chat.
+              reportFactoryModelUsage(
+                req.chatId,
+                response.totalUsage ?? response.usage,
+                response.providerMetadata,
+              );
               const totalTokens = response.usage?.totalTokens;
               const inputTokens = response.usage?.inputTokens;
               const cachedInputTokens = response.usage?.cachedInputTokens;
@@ -2532,7 +2577,7 @@ export async function handleLocalAgentStream(
  * restored list so its UI matches disk.
  */
 async function clearTodosOnCancel(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   appPath: string,
   chatId: number,
   priorTodos: Todo[],
@@ -2710,7 +2755,7 @@ async function updateResponseInDb(messageId: number, content: string) {
 }
 
 function sendResponseChunk(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   chatId: number,
   invocationRef: ChatStreamParams["invocationRef"],
   streamId: number | undefined,
@@ -2894,7 +2939,7 @@ function shouldRunTodoFollowUpPass(params: {
  * and surfaces tool errors as `<dyad-output type="error">`.
  */
 async function getMcpTools(
-  event: IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   ctx: AgentContext,
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};

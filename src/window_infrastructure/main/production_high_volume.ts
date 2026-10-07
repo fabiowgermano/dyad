@@ -1,7 +1,11 @@
-import type { WebContents } from "electron";
+import type { WindowEndpoint } from "./window_registry";
 import type { ChatResponseChunk } from "@/ipc/types/chat";
 import type { AppOutput } from "@/ipc/types/misc";
-import { safeSend } from "@/ipc/utils/safe_sender";
+import {
+  isWindowRoutableSender,
+  safeSend,
+  type RoutableSafeSender,
+} from "@/ipc/utils/safe_sender";
 import { HighVolumeWindowInterests } from "./high_volume_interests";
 import { windowRegistry } from "./window_registry";
 
@@ -20,7 +24,7 @@ export const chatChunkInterests =
   );
 
 export function ensureProducerInterest(
-  sender: WebContents,
+  sender: WindowEndpoint,
   interest:
     | { kind: "app-output"; appId: number }
     | { kind: "chat-chunk"; chatId: number },
@@ -34,13 +38,13 @@ export function ensureProducerInterest(
 }
 
 export function sendChatChunk(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   payload: ChatResponseChunk,
 ): void {
-  if (!Number.isInteger(sender.id) || sender.isDestroyed()) {
+  if (!isWindowRoutableSender(sender) || sender.isDestroyed()) {
     safeSend(sender, "chat:response:chunk", payload);
   } else {
-    ensureProducerInterest(sender, {
+    ensureProducerInterest(sender as WindowEndpoint, {
       kind: "chat-chunk",
       chatId: payload.chatId,
     });
@@ -50,10 +54,10 @@ export function sendChatChunk(
 }
 
 export function releaseChatProducerInterest(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   chatId: number,
 ): void {
-  if (!Number.isInteger(sender.id)) return;
+  if (!isWindowRoutableSender(sender)) return;
   chatChunkInterests.releaseLive(sender.id, {
     kind: "chat-chunk",
     chatId,

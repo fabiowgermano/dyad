@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.factory-provider.tsbuildinfo",
+    "types": ["vite/client", "node"]
+  },
+  "include": [
+    "src/factory_provider/**/*.ts",
+    "src/ipc/handlers/app_handlers.ts",
+    "src/ipc/handlers/chat_stream_handlers.ts",
+    "src/ipc/handlers/createFromTemplate.ts",
+    "src/ipc/handlers/testing_chat_handlers.ts",
+    "src/ipc/services/app_creation_service.ts",
+    "src/ipc/types/app.ts",
+    "src/ipc/utils/query_invalidation_delivery.ts",
+    "src/ipc/utils/read_env.ts",
+    "src/ipc/utils/safe_sender.ts",
+    "src/ipc/utils/window_broadcast.ts",
+    "src/main/settings.ts",
+    "src/paths/paths.ts",
+    "src/pro/main/ipc/handlers/local_agent/local_agent_handler.ts",
+    "src/pro/main/ipc/handlers/local_agent/tools/types.ts",
+    "src/window_infrastructure/main/production_high_volume.ts"
+  ],
+  "exclude": ["src/testing/**", "testing/**", "e2e-tests/**"]
+}

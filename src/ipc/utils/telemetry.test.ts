@@ -23,6 +23,7 @@ import { SDKError } from "@vercel/sdk/models/sdkerror.js";
 import { getVercelProjectCreationError } from "./vercel_errors";
 import { serializeIpcError, deserializeIpcError } from "../contracts/core";
 import {
+  sendTelemetryEvent,
   sendTelemetryEventToWindow,
   sendTelemetryException,
   shouldFilterTelemetryException,
@@ -138,6 +139,22 @@ describe("shouldFilterTelemetryException", () => {
 });
 
 describe("sendTelemetryEventToWindow", () => {
+  it("suppresses renderer telemetry in headless service mode", () => {
+    const previous = process.env.DYAD_HEADLESS_SERVICE;
+    process.env.DYAD_HEADLESS_SERVICE = "1";
+    sent.calls.length = 0;
+    try {
+      sendTelemetryEvent("factory:headless-test", { source: "provider" });
+      expect(sent.calls).toEqual([]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.DYAD_HEADLESS_SERVICE;
+      } else {
+        process.env.DYAD_HEADLESS_SERVICE = previous;
+      }
+    }
+  });
+
   it("sends through the selected product window", () => {
     const send = vi.fn();
     const target = { webContents: { send } } as unknown as BrowserWindow;

@@ -1,5 +1,5 @@
-import type { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
+import type { SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import { DyadError, DyadErrorKind } from "@/errors/dyad_error";
 import {
   TestRunQueue,
@@ -23,7 +23,7 @@ let nextTestRunId = 0;
 export function withAppTestRun<Result>(
   options: Omit<TestRunRequest, "runId"> & {
     appId: number;
-    event: IpcMainInvokeEvent;
+    event: SenderInvokeEvent;
     externalSignal?: AbortSignal;
     onQueued?: (position: number) => void;
   },

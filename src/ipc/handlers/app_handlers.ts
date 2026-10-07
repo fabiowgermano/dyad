@@ -1,6 +1,6 @@
 import { deleteChatJournals } from "@/ipc/services/chat_journal_cleanup";
 import { initialChatExecution } from "@/ipc/utils/chat_execution_selection";
-import { app, dialog } from "electron";
+import { app, dialog, type WebContents } from "electron";
 import { closeDatabase, db, getDatabaseFilePaths } from "../../db";
 import {
   apps,
@@ -13,7 +13,7 @@ import {
 import { desc, eq, inArray, like } from "drizzle-orm";
 import { createTypedHandler } from "./base";
 import { appContracts } from "../types/app";
-import type { AppFileSearchResult } from "../types/app";
+import type { AppFileSearchResult, CreateAppParams } from "../types/app";
 import { miscContracts } from "../types/misc";
 import { systemContracts } from "../types/system";
 import fs from "node:fs";
@@ -181,6 +181,7 @@ import { coolifyDeployRegistry } from "@/coolify_deploy/controller";
 import { githubOpsService } from "../services/github_ops_service";
 import { versionPreviewActorService } from "../services/version_preview_actor_service";
 import { appDeletionQueue } from "../services/app_deletion_queue";
+import { createDyadApp } from "../services/app_creation_service";
 import { versionPreviewService } from "../services/version_preview_service";
 import { safeGithubOpsErrorMessage } from "../services/github_ops_safe_error";
 import {
@@ -845,6 +846,72 @@ async function deleteAppByIdExclusive(
   return deletedRow;
 }
 
+/**
+ * Production create-app seam for trusted non-renderer callers.
+ *
+ * This preserves the exact app creation semantics used by Electron IPC while
+ * allowing the Factory headless runtime to create a Dyad app without
+ * fabricating an IPC event or renderer. A renderer owner is only required for
+ * first-prompt lifecycle tracking.
+ */
+export async function createAppFromTrustedCaller(
+  params: CreateAppParams,
+  owner?: WebContents,
+) {
+  const operationId = params.firstPromptCreationOperationId;
+  if (operationId) {
+    firstPromptCreationRegistry.track(operationId, owner);
+  }
+
+  try {
+    const result = await createDyadApp(params);
+    if (operationId) {
+      await firstPromptCreationRegistry.complete(operationId, async () => {
+        try {
+          await deleteAppById(result.app.id, {
+            allowMissing: true,
+            knownAppPath: result.app.resolvedPath,
+            publishDisposal: false,
+          });
+        } finally {
+          queryInvalidationBus.publish([
+            { family: "apps" },
+            { family: "chats" },
+          ]);
+        }
+      });
+    }
+    return result;
+  } catch (error) {
+    if (operationId) {
+      const partial = (
+        error as Error & {
+          factoryPartialApp?: { appId: number; resolvedPath: string };
+        }
+      ).factoryPartialApp;
+      if (partial) {
+        await firstPromptCreationRegistry.complete(operationId, async () => {
+          try {
+            await deleteAppById(partial.appId, {
+              allowMissing: true,
+              knownAppPath: partial.resolvedPath,
+              publishDisposal: false,
+            });
+          } finally {
+            queryInvalidationBus.publish([
+              { family: "apps" },
+              { family: "chats" },
+            ]);
+          }
+        });
+      } else {
+        firstPromptCreationRegistry.commit(operationId);
+      }
+    }
+    throw error;
+  }
+}
+
 export function registerAppHandlers() {
   registerCloudSandboxSyncUpdateListener();
 
@@ -853,129 +920,9 @@ export function registerAppHandlers() {
     app.quit();
   });
 
-  createTypedHandler(appContracts.createApp, async (event, params) => {
-    if (params.firstPromptCreationOperationId) {
-      firstPromptCreationRegistry.track(
-        params.firstPromptCreationOperationId,
-        event.sender,
-      );
-    }
-    let app!: typeof apps.$inferSelect;
-    let fullAppPath!: string;
-    try {
-      const appName = sanitizeAppDisplayName(params.name);
-
-      // The display name the user typed conflicting is a hard error (they can
-      // pick another); folder collisions below auto-resolve with a suffix.
-      const nameConflict = await db.query.apps.findFirst({
-        where: eq(apps.name, appName),
-      });
-      if (nameConflict) {
-        throw new DyadError(
-          `An app named "${appName}" already exists.`,
-          DyadErrorKind.Conflict,
-        );
-      }
-
-      const appPath = await resolveUniqueFolderName(
-        slugifyAppFolderName(appName),
-      );
-      fullAppPath = getDyadAppPath(appPath);
-
-      if (!isAppLocationAccessible(fullAppPath)) {
-        throw new Error(
-          `The path ${fullAppPath} is inaccessible. Please check your custom apps folder setting.`,
-        );
-      }
-
-      // Create a new app
-      const settings = readSettings();
-      [app] = await db
-        .insert(apps)
-        .values({
-          name: appName,
-          path: appPath,
-          needsAppBlueprint: settings.enableAppBlueprint,
-          // Opt newly created apps into E2E testing when the user has enabled
-          // the "testing for new apps" setting. Otherwise fall back to the
-          // column default (off).
-          testingEnabled: settings.enableTestingForNewApps ?? false,
-        })
-        .returning();
-    } catch (error) {
-      if (params.firstPromptCreationOperationId) {
-        firstPromptCreationRegistry.commit(
-          params.firstPromptCreationOperationId,
-        );
-      }
-      throw error;
-    }
-
-    const cleanupFirstPromptCreation = async () => {
-      try {
-        await deleteAppById(app.id, {
-          allowMissing: true,
-          knownAppPath: fullAppPath,
-          publishDisposal: false,
-        });
-      } finally {
-        queryInvalidationBus.publish([{ family: "apps" }, { family: "chats" }]);
-      }
-    };
-
-    try {
-      const initialChatMode = await getInitialChatModeForNewChat(
-        params.initialChatMode,
-      );
-
-      // Create an initial chat for this app
-      const [chat] = await db
-        .insert(chats)
-        .values({
-          appId: app.id,
-          chatMode: initialChatMode,
-          ...(await initialChatExecution()),
-        })
-        .returning();
-
-      await createFromTemplate({
-        fullAppPath,
-      });
-
-      // Ensure `.dyad/` is gitignored before the initial commit so the agent's
-      // later `ensureDyadGitignored` call is a no-op and the app stays clean.
-      // Otherwise the first template swap (e.g. from app-blueprint approval)
-      // fails the clean-working-tree check.
-      await ensureDyadGitignored(fullAppPath);
-
-      // Initialize git repo and create first commit
-      const commitHash = await gitService.initRepoWithInitialCommit({
-        path: fullAppPath,
-      });
-
-      // Update chat with initial commit hash
-      await db
-        .update(chats)
-        .set({
-          initialCommitHash: commitHash,
-        })
-        .where(eq(chats.id, chat.id));
-
-      const result = {
-        app: { ...app, resolvedPath: fullAppPath },
-        chatId: chat.id,
-      };
-      return result;
-    } finally {
-      if (params.firstPromptCreationOperationId) {
-        await firstPromptCreationRegistry.complete(
-          params.firstPromptCreationOperationId,
-          cleanupFirstPromptCreation,
-        );
-      }
-    }
-  });
-
+  createTypedHandler(appContracts.createApp, async (event, params) =>
+    createAppFromTrustedCaller(params, event.sender),
+  );
   createTypedHandler(appContracts.copyApp, async (_, params) => {
     const { appId, withHistory } = params;
     const newAppName = sanitizeAppDisplayName(params.newAppName);

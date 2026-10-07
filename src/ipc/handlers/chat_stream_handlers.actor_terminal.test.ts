@@ -5,6 +5,7 @@ import {
   clearPendingActorStreamCancellation,
   createObservedChatStreamSender,
   markPendingActorStreamCancellation,
+  resolveObservedChatStreamResult,
   settleUnobservedChatStreamResult,
   takePendingActorStreamCancellation,
 } from "./chat_stream_handlers";
@@ -99,9 +100,11 @@ describe("createObservedChatStreamSender", () => {
     const observed = createObservedChatStreamSender(sender, observeTerminal);
 
     expect(observed.id).toBe(42);
+    expect(observed.routeKind).toBeUndefined();
     destroyed = true;
 
-    expect(Number.isInteger(observed.id)).toBe(false);
+    expect(observed.id).toBe(42);
+    expect(observed.routeKind).toBe("headless");
     observed.send("chat:response:end", { chatId: 7 });
     expect(observeTerminal).toHaveBeenCalledWith("chat:response:end", {
       chatId: 7,
@@ -123,5 +126,37 @@ describe("pending actor stream cancellation", () => {
 
     expect(takePendingActorStreamCancellation(invocationRef)).toBe(true);
     expect(takePendingActorStreamCancellation(invocationRef)).toBe(false);
+  });
+});
+
+describe("resolveObservedChatStreamResult", () => {
+  it("treats a silent handler as successful when an end terminal was observed", () => {
+    expect(
+      resolveObservedChatStreamResult(
+        { chatId: 7, prompt: "hello" },
+        undefined,
+        "end",
+      ),
+    ).toBe(7);
+  });
+
+  it("keeps a silent handler failed when an error terminal was observed", () => {
+    expect(
+      resolveObservedChatStreamResult(
+        { chatId: 7, prompt: "hello" },
+        undefined,
+        "error",
+      ),
+    ).toBe("error");
+  });
+
+  it("keeps an explicit handler result authoritative", () => {
+    expect(
+      resolveObservedChatStreamResult(
+        { chatId: 7, prompt: "hello" },
+        "error",
+        "end",
+      ),
+    ).toBe("error");
   });
 });

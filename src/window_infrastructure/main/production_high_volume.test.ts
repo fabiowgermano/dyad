@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebContents } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IpcAppRuntimeOutput } from "@/ipc/services/app_runtime_transport";
+import type { RoutableSafeSender } from "@/ipc/utils/safe_sender";
 import type { WindowSessionId } from "../types";
 import {
   appOutputInterests,
@@ -66,5 +67,25 @@ describe("production high-volume fan-out", () => {
       expect.objectContaining({ chatId: 9 }),
     );
     expect(unrelated.send).not.toHaveBeenCalled();
+  });
+
+  it("delivers headless chat chunks without registering a window route", () => {
+    const send = vi.fn();
+    const headless: RoutableSafeSender = {
+      id: 0,
+      routeKind: "headless",
+      isDestroyed: () => false,
+      send,
+    };
+
+    sendChatChunk(headless, {
+      chatId: 10,
+      streamingPreview: { content: "headless" },
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      "chat:response:chunk",
+      expect.objectContaining({ chatId: 10 }),
+    );
   });
 });

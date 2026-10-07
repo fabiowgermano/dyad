@@ -12,8 +12,6 @@ import {
 import { claudeStatus } from "@/ipc/services/claude_code/runtime";
 import { handleLocalAgentStream } from "@/pro/main/ipc/handlers/local_agent/local_agent_handler";
 import { v4 as uuidv4 } from "uuid";
-import { app, type IpcMainInvokeEvent, type WebContents } from "electron";
-import { createTypedHandler } from "./base";
 import {
   computeStreamingPatch,
   fastTextOutput,
@@ -54,7 +52,6 @@ import {
   SUPABASE_DISCONNECTED_SYSTEM_PROMPT,
   SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
 } from "../../prompts/supabase_prompt";
-import { registerTrustedIpcHandler } from "./trusted_handle";
 import {
   buildNeonPromptForApp,
   getNeonEmailVerificationEnabled,
@@ -120,7 +117,11 @@ import { isPreCommitHookAvailable } from "../services/pre_commit_service";
 import { userInputRegistry } from "../../user_input/main";
 import { getAppBlueprintForChat } from "./app_blueprint_handlers";
 
-import { safeSend, type SafeSender } from "../utils/safe_sender";
+import {
+  safeSend,
+  type RoutableSafeSender,
+  type SafeSender,
+} from "../utils/safe_sender";
 import {
   releaseChatProducerInterest,
   sendChatChunk,
@@ -221,6 +222,23 @@ function createEmptyTextStream(): AsyncIterableStream<TextStreamPart<ToolSet>> {
 
 const logger = log.scope("chat_stream_handlers");
 
+function electronApp(): typeof import("electron").app | undefined {
+  if (!process.versions.electron) return undefined;
+  try {
+    return (require("electron") as typeof import("electron")).app;
+  } catch {
+    return undefined;
+  }
+}
+
+function ipcRegistration() {
+  return require("./base") as typeof import("./base");
+}
+
+function trustedIpcRegistration() {
+  return require("./trusted_handle") as typeof import("./trusted_handle");
+}
+
 type ImplementerCapabilityApp = Pick<
   typeof apps.$inferSelect,
   | "supabaseProjectId"
@@ -284,8 +302,12 @@ export interface ChatStreamExecutionObserver {
   onError?(error: ChatStreamErrorPayload): void;
 }
 
+type ChatStreamExecutionEvent = {
+  sender: RoutableSafeSender;
+};
+
 type InternalChatStreamHandler = (
-  event: IpcMainInvokeEvent,
+  event: ChatStreamExecutionEvent,
   request: ChatStreamParams,
 ) => Promise<number | "error" | undefined>;
 
@@ -324,24 +346,33 @@ export function settleUnobservedChatStreamResult(
   });
 }
 
+export function resolveObservedChatStreamResult(
+  request: ChatStreamParams,
+  result: number | "error" | undefined,
+  terminal: "end" | "error" | undefined,
+): number | "error" {
+  if (result !== undefined) return result;
+  if (terminal === "end") return request.chatId;
+  return "error";
+}
+
 export function createObservedChatStreamSender(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   observeTerminal: (channel: string, payload: unknown) => void,
-): WebContents {
+): RoutableSafeSender {
   const targetIsUnavailable = (): boolean => {
     if (sender.isDestroyed()) return true;
-    const senderWithCrashState = sender as WebContents & {
+    const senderWithCrashState = sender as RoutableSafeSender & {
       isCrashed?: () => boolean;
     };
     return senderWithCrashState.isCrashed?.() ?? false;
   };
   return new Proxy(sender, {
     get(target, property, receiver) {
-      if (property === "id" && targetIsUnavailable()) {
-        // High-volume routing treats non-integer endpoints as non-producers.
-        // This prevents a real webContents that closed after route selection
-        // from being re-registered through this observation proxy.
-        return Number.NaN;
+      if (property === "routeKind" && targetIsUnavailable()) {
+        // Once the presentation endpoint disappears, keep terminal observation
+        // alive but explicitly disable window routing for this proxy.
+        return "headless";
       }
       // `safeSend` must reach the proxy's `send` trap even if the presentation
       // endpoint disappeared. Actor completion is independent of renderer
@@ -375,6 +406,7 @@ export function registerLegacyChatStreamTestHandler(): void {
   if (!process.env.VITEST) {
     throw new Error("Legacy chat stream IPC is test-only");
   }
+  const { registerTrustedIpcHandler } = trustedIpcRegistration();
   registerTrustedIpcHandler("chat:stream", async (event, request) => {
     if (!internalChatStreamHandler) {
       throw new Error("Chat stream handlers have not been registered");
@@ -387,7 +419,7 @@ export function registerLegacyChatStreamTestHandler(): void {
 }
 
 export async function executeChatStreamFromActor(
-  sender: WebContents,
+  sender: RoutableSafeSender,
   request: ChatStreamParams,
   observer: ChatStreamExecutionObserver,
 ): Promise<number | "error"> {
@@ -405,11 +437,13 @@ export async function executeChatStreamFromActor(
     observer,
   );
   let terminalObserved = false;
+  let terminalKind: "end" | "error" | undefined;
   let deferredCancellation: ChatStreamEndPayload | undefined;
   const observeTerminal = (channel: string, payload: unknown) => {
     if (terminalObserved) return;
     if (channel === "chat:response:end") {
       terminalObserved = true;
+      terminalKind = "end";
       const response = payload as ChatStreamEndPayload;
       if (response.wasCancelled) {
         // Cancellation is announced to renderers before the handler has
@@ -422,6 +456,7 @@ export async function executeChatStreamFromActor(
       }
     } else if (channel === "chat:response:error") {
       terminalObserved = true;
+      terminalKind = "error";
       observer.onError?.(payload as ChatStreamErrorPayload);
     }
   };
@@ -430,11 +465,15 @@ export async function executeChatStreamFromActor(
     observeTerminal,
   );
   try {
-    const result =
-      (await internalChatStreamHandler(
-        { sender: observedSender } as IpcMainInvokeEvent,
-        request,
-      )) ?? "error";
+    const rawResult = await internalChatStreamHandler(
+      { sender: observedSender },
+      request,
+    );
+    const result = resolveObservedChatStreamResult(
+      request,
+      rawResult,
+      terminalKind,
+    );
     if (deferredCancellation) {
       observer.onEnd?.(deferredCancellation);
     } else if (!terminalObserved) {
@@ -975,11 +1014,13 @@ export async function processStreamChunks({
   return { fullResponse, incrementalResponse, modelRefused };
 }
 
-export function registerChatStreamHandlers() {
+export function registerChatStreamHandlers(
+  options: { registerIPC?: boolean } = {},
+) {
+  const registerIPC = options.registerIPC !== false;
   // Abort in-flight LLM streams on quit so the process can exit promptly and
   // the module-level stream-tracking maps don't outlive their renderer.
-  // (Guarded: `app` is undefined when this module is imported in unit tests.)
-  app?.on?.("before-quit", () => {
+  electronApp()?.on?.("before-quit", () => {
     userInputRegistry.dispose();
     for (const controllers of activeStreams.values()) {
       controllers.forEach(({ abortController }) => abortController.abort());
@@ -995,15 +1036,18 @@ export function registerChatStreamHandlers() {
     resolveAllAdmissionWaiters(chatStreamAdmissionWaiters);
   });
 
-  createTypedHandler(
-    chatContracts.responseAck,
-    async (_event, { chatId, lastSeq }) => {
-      noteAck(chatId, lastSeq);
-    },
-  );
+  if (registerIPC) {
+    const { createTypedHandler } = ipcRegistration();
+    createTypedHandler(
+      chatContracts.responseAck,
+      async (_event, { chatId, lastSeq }) => {
+        noteAck(chatId, lastSeq);
+      },
+    );
+  }
 
   const chatStreamHandler = async (
-    event: IpcMainInvokeEvent,
+    event: ChatStreamExecutionEvent,
     req: ChatStreamParams,
   ) => {
     let attachmentPaths: string[] = [];
@@ -2877,13 +2921,25 @@ This conversation includes one or more image attachments. When the user uploads 
         // logs, verification commands, sandbox scripts, or MCP servers.
         if (isBuildMode) {
           const readOnlyBuildTurn = isSecurityReviewIntent || isSummarizeIntent;
+          const factoryHeadlessSystemPrompt =
+            process.env.DYAD_HEADLESS_SERVICE === "1"
+              ? [
+                  "You are the Dyad build executor running without an interactive renderer.",
+                  "Use the provided native function tools; do not print pseudo-tool XML or prose instead of calling a tool.",
+                  "For a code-change request, inspect the target with read_file, then mutate the real workspace with write_file or search_replace.",
+                  "Tool calls are the only accepted way to read or modify files.",
+                  "Do not ask questions, create plans, or discuss the task.",
+                  "Do not finish before at least one file mutation succeeds.",
+                  "After the first mutation, continue until the requested behavior and acceptance criteria are implemented in reachable app code, then finish naturally.",
+                ].join("\n")
+              : systemPrompt;
           finishedNaturally = await handleLocalAgentStream(
             event,
             req,
             abortController,
             {
               placeholderMessageId: placeholderAssistantMessage.id,
-              systemPrompt,
+              systemPrompt: factoryHeadlessSystemPrompt,
               dyadRequestId: dyadRequestId ?? "[no-request-id]",
               readOnly: readOnlyBuildTurn,
               toolProfile: "build",
@@ -3353,15 +3409,18 @@ This conversation includes one or more image attachments. When the user uploads 
   };
   internalChatStreamHandler = chatStreamHandler;
 
-  // Handler to cancel an ongoing stream
-  createTypedHandler(chatContracts.cancelStream, async (event, chatId) => {
-    const cancelled = await cancelTrackedStreams([chatId], event.sender);
-    if (!cancelled) {
-      logger.warn(`No active stream found for chat ${chatId}`);
-    }
+  if (registerIPC) {
+    const { createTypedHandler } = ipcRegistration();
+    // Handler to cancel an ongoing stream.
+    createTypedHandler(chatContracts.cancelStream, async (event, chatId) => {
+      const cancelled = await cancelTrackedStreams([chatId], event.sender);
+      if (!cancelled) {
+        logger.warn(`No active stream found for chat ${chatId}`);
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }
 }
 
 export function formatMessagesForSummary(

@@ -11,12 +11,9 @@ import {
   VertexProviderSetting,
   migrateStoredSettings,
 } from "../lib/schemas";
-import {
-  app,
-  BrowserWindow,
-  safeStorage,
-  type WebContents,
-  type BrowserWindow as BrowserWindowInstance,
+import type {
+  WebContents,
+  BrowserWindow as BrowserWindowInstance,
 } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import log from "electron-log";
@@ -36,6 +33,15 @@ import {
 import { DEFAULT_ENABLE_TESTING_FOR_NEW_APPS } from "@/shared/settings_defaults";
 
 const logger = log.scope("settings");
+
+function electronRuntime(): typeof import("electron") | undefined {
+  if (!process.versions.electron) return undefined;
+  try {
+    return require("electron") as typeof import("electron");
+  } catch {
+    return undefined;
+  }
+}
 
 // WARNING: Do not change values once it's been
 // set in DEFAULT_SETTINGS.
@@ -816,7 +822,7 @@ function resolveStoredSecret(
     // the normal encrypt() pass, organically re-encrypting the secret under
     // the current session identity.
     //
-    // Gate on app.isReady(): recovery shells out to the `security` CLI, which
+    // Gate on electronRuntime()?.app.isReady() === true: recovery shells out to the `security` CLI, which
     // blocks synchronously and can raise a Keychain permission prompt. On
     // Electron 40 a failed decrypt can happen pre-`ready` (safeStorage runs
     // before ready there), so without this gate the prompt/stall would land on
@@ -835,7 +841,7 @@ function resolveStoredSecret(
     const storedSecret = parsedSecret.data;
     if (
       storedSecret.encryptionType === "electron-safe-storage" &&
-      app.isReady()
+      electronRuntime()?.app.isReady() === true
     ) {
       const recovered = recoverLegacySafeStorageSecret(storedSecret.value);
       if (recovered !== null) {
@@ -1064,6 +1070,11 @@ function readSettingsForWrite(filePath: string): {
 }
 
 function notifyRendererError(payload: RendererErrorToast): void {
+  const BrowserWindow = electronRuntime()?.BrowserWindow;
+  if (!BrowserWindow) {
+    pendingRendererErrors.push(payload);
+    return;
+  }
   const windows = BrowserWindow.getAllWindows().filter((window) =>
     rendererErrorToastReadyWebContents.has(window.webContents),
   );
@@ -1078,6 +1089,8 @@ export function notifyRendererErrorToastListenerReady(
   webContents: WebContents,
 ): void {
   rendererErrorToastReadyWebContents.add(webContents);
+  const BrowserWindow = electronRuntime()?.BrowserWindow;
+  if (!BrowserWindow) return;
   const window = BrowserWindow.fromWebContents(webContents);
   if (window) {
     flushPendingRendererErrors([window]);
@@ -1138,11 +1151,17 @@ function writeSettingsFileAtomically(
 
 export function encrypt(data: string): Secret {
   const trimmed = data.trim();
-  if (safeStorage.isEncryptionAvailable() && !IS_TEST_BUILD) {
+  const safeStorage = electronRuntime()?.safeStorage;
+  if (safeStorage?.isEncryptionAvailable() && !IS_TEST_BUILD) {
     return {
       value: safeStorage.encryptString(trimmed).toString("base64"),
       encryptionType: "electron-safe-storage",
     };
+  }
+  if (process.env.DYAD_HEADLESS_SERVICE === "1" && !IS_TEST_BUILD) {
+    throw new Error(
+      "Headless service secret persistence is disabled; configure provider credentials through the service secret boundary.",
+    );
   }
   return {
     value: trimmed,
@@ -1152,6 +1171,12 @@ export function encrypt(data: string): Secret {
 
 export function decrypt(data: Secret): string {
   if (data.encryptionType === "electron-safe-storage") {
+    const safeStorage = electronRuntime()?.safeStorage;
+    if (!safeStorage?.isEncryptionAvailable()) {
+      throw new Error(
+        "electron-safe-storage secret cannot be decrypted outside the Electron desktop runtime",
+      );
+    }
     return safeStorage.decryptString(Buffer.from(data.value, "base64")).trim();
   }
   return data.value.trim();

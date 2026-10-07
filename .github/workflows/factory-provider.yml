@@ -1,0 +1,50 @@
+name: Factory Provider Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/factory_provider/**"
+      - "src/ipc/handlers/app_handlers.ts"
+      - "src/ipc/handlers/chat_stream_handlers.ts"
+      - "src/ipc/handlers/createFromTemplate.ts"
+      - "src/ipc/services/app_creation_service.ts"
+      - "src/ipc/types/app.ts"
+      - "src/ipc/utils/safe_sender.ts"
+      - ".github/workflows/factory-provider.yml"
+  push:
+    branches:
+      - "factory/headless-provider-runtime"
+
+jobs:
+  targeted:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck provider slice
+        run: npx tsc -p tsconfig.factory-provider.json
+      - name: Build Windows service bundle
+        run: node scripts/build-factory-provider.mjs
+      - name: Factory provider tests
+        shell: pwsh
+        run: >
+          npx vitest run
+          src/factory_provider/protocol.test.ts
+          src/factory_provider/source_manifest.test.ts
+          src/factory_provider/http_server.test.ts
+          src/factory_provider/operation_store.test.ts
+          src/factory_provider/durable_runtime.test.ts
+          src/factory_provider/windows_service_config.test.ts
+          src/factory_provider/model_registry.test.ts
+          src/factory_provider/prototype_executor.test.ts
+          src/factory_provider/chat_intent_hash.test.ts
+          src/factory_provider/service_main.test.ts
+          src/factory_provider/usage_collector.test.ts
+          src/factory_provider/service_tokens.test.ts
+          src/factory_provider/preview_gateway.test.ts
+          src/factory_provider/preview_gateway_dyad_proxy.test.ts

@@ -1,6 +1,6 @@
 import { recordShellReviewOutcome } from "../shell_review_history";
-import type { IpcMainInvokeEvent } from "electron";
 import { randomUUID } from "node:crypto";
+import type { SenderInvokeEvent } from "@/ipc/utils/safe_sender";
 import { asSchema } from "@ai-sdk/provider-utils";
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import log from "electron-log";
@@ -207,7 +207,7 @@ export async function collectMcpToolDefs(
  * the UI, mirroring the behavior of individually-registered MCP tools.
  */
 export function buildMcpCapabilityMap(params: {
-  event: IpcMainInvokeEvent;
+  event: SenderInvokeEvent;
   ctx: AgentContext;
   defs: McpToolDef[];
 }): Record<string, (...args: unknown[]) => unknown> {

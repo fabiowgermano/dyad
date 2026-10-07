@@ -1,4 +1,4 @@
-import { safeSend } from "../utils/safe_sender";
+import { safeSend, type SenderInvokeEvent } from "../utils/safe_sender";
 import { cleanFullResponse } from "../utils/cleanFullResponse";
 import { computeStreamingPatch } from "../utils/stream_text_utils";
 import type { ChatStreamInvocationRef } from "@/chat_stream/invocation";
@@ -204,7 +204,7 @@ const CHUNK_SIZE = 500;
  * — and pre-cleaning avoids an O(N²) regex sweep over the accumulator.
  */
 export async function streamTestResponse(
-  event: Electron.IpcMainInvokeEvent,
+  event: SenderInvokeEvent,
   chatId: number,
   invocationRef: ChatStreamInvocationRef | undefined,
   streamId: number | undefined,
